@@ -59,7 +59,7 @@ RELAY_DEFINE_NODE_REF(QPartitionExpr, QPartitionExprNode, TempExpr);
 Expr QPartitionExprNode::Realize() const {
   // insert cast hint and stop fusion
   const QConfig& cfg = QConfig::Current();
-  Expr ret = CastHint(this->expr, cfg->dtype_input);
+  Expr ret = CastHint(this->expr, cfg->dtype_input, cfg->nbit_input);
   return StopFusion(ret);
 }
 

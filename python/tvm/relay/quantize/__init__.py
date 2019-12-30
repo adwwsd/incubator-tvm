@@ -21,3 +21,4 @@ from __future__ import absolute_import as _abs
 from .quantize import *
 from ._partition import register_partition_function
 from ._annotate import register_annotate_function
+from ._realize import register_realize_function

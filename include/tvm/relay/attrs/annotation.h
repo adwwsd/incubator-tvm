@@ -49,11 +49,14 @@ struct OnDeviceAttrs : public tvm::AttrsNode<OnDeviceAttrs> {
  */
 struct CastHintAttrs : public tvm::AttrsNode<CastHintAttrs> {
   DataType dtype;
-
+  int nbit;
   TVM_DECLARE_ATTRS(CastHintAttrs, "relay.attrs.CastHintAttrs") {
     TVM_ATTR_FIELD(dtype)
       .describe(
          "The data type denoted to be cast.");
+    TVM_ATTR_FIELD(nbit)
+      .describe(
+         "The number of bits denoted to be cast.");      
   }
 };
 

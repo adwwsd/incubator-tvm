@@ -226,9 +226,14 @@ Expr Conv2dRealize(const Call& ref_call,
   return QRealizeIntExprNode::make(ret, dom_scale, out_dtype);
 }
 
-RELAY_REGISTER_OP("nn.conv2d")
-.set_attr<FForwardRewrite>("FQRealizeRewrite", Conv2dRealize);
+// RELAY_REGISTER_OP("nn.conv2d")
+// .set_attr<FForwardRewrite>("FQRealizeRewrite", Conv2dRealize);
 
+TVM_REGISTER_API("relay._quantize.conv2d_realize")
+.set_body_typed<Expr(const Call&, const Array<Expr>&, const NodeRef&)>(
+  [](const Call& ref_call, const Array<Expr>& new_args, const NodeRef& ctx) {
+    return Conv2dRealize(ref_call, new_args, ctx);
+  });
 
 Expr DenseRealize(const Call& ref_call,
                   const Array<Expr>& new_args,

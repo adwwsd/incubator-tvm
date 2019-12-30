@@ -21,6 +21,7 @@ import warnings
 
 import topi
 from ..._ffi.function import register_func
+from ... import make as _make
 from .. import expr as _expr
 from .. import analysis as _analysis
 from .. import op as _op
@@ -115,7 +116,7 @@ def register_annotate_function(op_name, frewrite=None, level=10):
     return _register(frewrite) if frewrite is not None else _register
 
 
-def attach_simulated_quantize(data, kind, sign=True, rounding="round"):
+def attach_simulated_quantize(data, kind, sign=True, rounding="round", dtype=None, nbit=None):
     """Attach a simulated quantize operation after input data expr.
 
     Parameters
@@ -126,13 +127,21 @@ def attach_simulated_quantize(data, kind, sign=True, rounding="round"):
     kind: QAnnotateKind
         the kind of annotation field.
     """
+
+    qconfig = current_qconfig()
+    if dtype is None:
+        dtype = qconfig.get_dtype_by_kind(kind)
+    if nbit is None:
+        nbit = qconfig.get_nbit_by_kind(kind)
+
     quantize_op = _op.get("relay.op.annotation.simulated_quantize")
     if isinstance(data, _expr.Call) and data.op == quantize_op:
-        if data.attrs.kind == kind and data.attrs.sign == sign and data.attrs.rounding == rounding:
+        if data.attrs.kind == kind and data.attrs.sign == sign and data.attrs.rounding == rounding \
+            and data.attrs.dtype == dtype and data.attrs.nbit == nbit:
             return data
 
     qctx = quantize_context()
-    key = tuple([data, kind, sign, rounding])
+    key = tuple([data, kind, sign, rounding, dtype, nbit])
     if key in qctx.qnode_map:
         return qctx.qnode_map[key]
 
@@ -140,7 +149,7 @@ def attach_simulated_quantize(data, kind, sign=True, rounding="round"):
     clip_min = _expr.var("clip_min")
     clip_max = _expr.var("clip_max")
     qnode = _quantize.simulated_quantize(
-        data, dom_scale, clip_min, clip_max, kind, sign, rounding)
+        data, dom_scale, clip_min, clip_max, kind, sign, rounding, dtype, nbit)
     qctx.qnode_map[key] = qnode
     return qnode
 
@@ -159,20 +168,22 @@ def conv2d_rewrite(ref_call, new_args, ctx):
     """Rewrite function for conv2d. Lhs of conv will be quantized to
     input field, and rhs of conv will be quantized to weight field.
     Output would be in activation field"""
+    annotation_qconfig = quantize_context().current_annotation_qconfig(ref_call)
+
     if quantize_context().check_to_skip(ref_call):
         return None
-
+    
     lhs_expr, lhs_kind = _get_expr_kind(new_args[0])
     rhs_expr, rhs_kind = _get_expr_kind(new_args[1])
 
-    if lhs_kind is None or lhs_kind == QAnnotateKind.ACTIVATION:
-        lhs_expr = attach_simulated_quantize(lhs_expr, QAnnotateKind.INPUT)
+    with annotation_qconfig:
+        if lhs_kind is None or lhs_kind == QAnnotateKind.ACTIVATION:
+            lhs_expr = attach_simulated_quantize(lhs_expr, QAnnotateKind.INPUT)
 
-    assert rhs_kind is None
-    rhs_expr = attach_simulated_quantize(rhs_expr, QAnnotateKind.WEIGHT)
-
-    expr = _forward_op(ref_call, [lhs_expr, rhs_expr])
-
+        assert rhs_kind is None
+        rhs_expr = attach_simulated_quantize(rhs_expr, QAnnotateKind.WEIGHT)
+    
+    expr = _forward_op(ref_call, [lhs_expr, rhs_expr])    
     return QAnnotateExpr(expr, QAnnotateKind.ACTIVATION)
 
 
@@ -318,7 +329,7 @@ def cast_hint_rewrite(ref_call, new_args, ctx):
     if x_kind is None:
         return new_args[0]
     if x_kind == QAnnotateKind.ACTIVATION:
-        expr = attach_simulated_quantize(expr, QAnnotateKind.INPUT)
+        expr = attach_simulated_quantize(expr, QAnnotateKind.INPUT, dtype=ref_call.attrs.dtype, nbit=ref_call.attrs.nbit)
 
     expr = _forward_op(ref_call, [expr])
     return QAnnotateExpr(expr, QAnnotateKind.INPUT)

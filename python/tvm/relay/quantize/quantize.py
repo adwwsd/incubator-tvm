@@ -192,6 +192,49 @@ class QuantizeContext(object):
         self.qnode_map = dict()
         self._conv2d_counter = 0
         self._stop_quantize = False
+        self.qconfig_dict = dict()
+        self._conv2d_partition_counter = 0
+        self._conv2d_annotation_counter = 0
+        self._conv2d_realize_counter = 0
+
+    def currrent_partition_qconfig(self, ref_call):
+        """Check the index of conv2d layer and get the quantization 
+        configuration to use in the partition stage."""
+        if self._conv2d_partition_counter in self.qconfig_dict:
+            config = self.qconfig_dict[self._conv2d_partition_counter]
+        else:
+            config = current_qconfig()
+
+        if ref_call.op.name == 'nn.conv2d':
+            self._conv2d_partition_counter += 1
+
+        return config
+
+    def current_annotation_qconfig(self, ref_call):
+        """Check the index of conv2d layer and get the quantization 
+        configuration to use in the annotation stage."""
+        if self._conv2d_annotation_counter in self.qconfig_dict:
+            config = self.qconfig_dict[self._conv2d_annotation_counter]
+        else: 
+            config = current_qconfig()
+
+        if ref_call.op.name == 'nn.conv2d':
+            self._conv2d_annotation_counter += 1
+
+        return config
+
+    def current_realize_qconfig(self, ref_call):
+        """Check the index of conv2d layer and get the quantization 
+        configuration to use in the realize stage."""
+        if self._conv2d_realize_counter in self.qconfig_dict:
+            config = self.qconfig_dict[self._conv2d_realize_counter]
+        else:
+            config = current_qconfig()
+
+        if ref_call.op.name == 'nn.conv2d':
+            self._conv2d_realize_counter += 1
+
+        return config
 
     def check_to_skip(self, ref_call):
         """Check the index of conv2d layer to decide whether to

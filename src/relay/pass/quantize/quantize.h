@@ -46,6 +46,8 @@ struct SimulatedQuantizeAttrs : public tvm::AttrsNode<SimulatedQuantizeAttrs> {
   int kind;
   bool sign;
   std::string rounding;
+  DataType dtype;
+  int nbit;
 
   TVM_DECLARE_ATTRS(SimulatedQuantizeAttrs, "relay.attrs.SimulatedQuantizeAttrs") {
     TVM_ATTR_FIELD(kind)
@@ -54,6 +56,10 @@ struct SimulatedQuantizeAttrs : public tvm::AttrsNode<SimulatedQuantizeAttrs> {
         .describe("whether to use signed data type.");
     TVM_ATTR_FIELD(rounding).set_default("round")
         .describe("rounding mode. Can be 'floor', 'ceil', 'round'");
+    TVM_ATTR_FIELD(dtype).set_default(DataType::Int(8))
+        .describe("quantized data type .");
+    TVM_ATTR_FIELD(nbit).set_default(8)
+        .describe("quantized number of bits. ");
   }
 };
 

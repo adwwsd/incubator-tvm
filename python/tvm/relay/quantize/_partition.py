@@ -24,7 +24,7 @@ from .. import analysis as _analysis
 from ..base import register_relay_node
 from ..op import op as _reg
 from . import _quantize
-from .quantize import _forward_op
+from .quantize import _forward_op, quantize_context
 
 def register_partition_function(op_name, frewrite=None, level=10):
     def _register(func):
@@ -50,10 +50,15 @@ def conv2d_partition_function(ref_call, new_args, ctx):
     """Rewrite function for conv2d for partition"""
     data_cond, data = partition_expr_check(new_args[0])
     kernel_cond, kernel = partition_expr_check(new_args[1])
+    
+    partition_qconfig = quantize_context().currrent_partition_qconfig(ref_call)
 
     assert not kernel_cond
+
     if data_cond:
-        data = new_args[0].realize()
+        with partition_qconfig:
+            data = new_args[0].realize()
+
     ret = _forward_op(ref_call, [data, kernel])
     return QPartitionExpr(ret)
 

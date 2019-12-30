@@ -90,7 +90,6 @@ def _kl_scale(stats):
 
 def _set_params(mod, input_scale_func, weight_scale_func):
     quantize_op = _op.get("relay.op.annotation.simulated_quantize")
-    cfg = quantize.current_qconfig()
     const_params = {}
 
     def visit_func(expr):
@@ -99,7 +98,7 @@ def _set_params(mod, input_scale_func, weight_scale_func):
             _, ndom_scale, nclip_min, nclip_max = expr.args
             attrs = expr.attrs
             kind = attrs.kind
-            nbit = cfg.get_nbit_by_kind(kind)
+            nbit = attrs.nbit
             valid_bit = nbit - attrs.sign
 
             # set scale

@@ -518,7 +518,7 @@ Expr MakeLayoutTransform(Expr data, std::string src_layout, std::string dst_layo
 
 Expr StopFusion(Expr data);
 
-Expr CastHint(Expr data, DataType dtype);
+Expr CastHint(Expr data, DataType dtype, int nbit);
 
 }  // namespace relay
 }  // namespace tvm

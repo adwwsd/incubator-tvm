@@ -86,9 +86,10 @@ TVM_ADD_FILELINE)
 // relay.annotation.cast_hint
 TVM_REGISTER_NODE_TYPE(CastHintAttrs);
 
-Expr CastHint(Expr data, DataType dtype) {
+Expr CastHint(Expr data, DataType dtype, int nbit) {
   auto attrs = make_node<CastHintAttrs>();
   attrs->dtype = dtype;
+  attrs->nbit = nbit;
   static const Op& op = Op::Get("annotation.cast_hint");
   return CallNode::make(op, {data}, Attrs{attrs}, {});
 }
