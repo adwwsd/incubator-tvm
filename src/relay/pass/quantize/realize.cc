@@ -28,6 +28,7 @@
 #include <tvm/relay/transform.h>
 #include <tvm/relay/analysis.h>
 #include <tvm/relay/attrs/annotation.h>
+#include <tvm/relay/attrs/bitserial.h>
 #include "./quantize.h"
 #include "../pattern_util.h"
 #include "../../qnn/util.h"
@@ -207,23 +208,45 @@ Expr Conv2dRealize(const Call& ref_call,
   const auto* rhs = new_args[1].as<QRealizeIntExprNode>();
   CHECK(rhs);
 
-  Expr ldata = lhs->data;
-  if (lhs->dtype != cfg->dtype_input) {
-    ldata = Cast(ldata, cfg->dtype_input);
+
+  if (cfg->nbit_input < 8 || cfg->nbit_weight < 8) {
+    Expr ldata = lhs->data;
+    if (lhs->dtype != DataType::Int(32)) {
+      ldata = Cast(ldata, DataType::Int(32));
+    }
+    
+    Expr rdata = Cast(rhs->data, DataType::Int(32));
+    rdata = MakeBitPack(rdata, cfg->nbit_weight, 1, 0, DataType::UInt(32), "QuantizeInput");
+    
+    const auto ref_attrs = ref_call->attrs.as<Conv2DAttrs>();
+    Expr bitserial_conv2d = MakeBinaryConv2D(ldata, rdata, ref_attrs->strides, ref_attrs->padding, ref_attrs->channels,
+                                              ref_attrs->kernel_size, cfg->nbit_input, cfg->nbit_weight, ref_attrs->data_layout,
+                                              ref_attrs->kernel_layout, DataType::UInt(32), DataType::Int(32), true);
+
+    Expr mul = Multiply(lhs->dom_scale, rhs->dom_scale);
+    Expr dom_scale = FoldConstantOpt(mul);
+
+    return QRealizeIntExprNode::make(bitserial_conv2d, dom_scale, DataType::Int(32));
+    
+  } else {
+    Expr ldata = lhs->data;
+    if (lhs->dtype != cfg->dtype_input) {
+      ldata = Cast(ldata, cfg->dtype_input);
+    }
+    Expr rdata = Cast(rhs->data, cfg->dtype_weight);
+
+    const auto ref_attrs = ref_call->attrs.as<Conv2DAttrs>();
+    auto attrs = make_node<Conv2DAttrs>();
+    *attrs = *ref_attrs;
+    DataType out_dtype = cfg->dtype_activation;
+    attrs->out_dtype = out_dtype;
+
+    Expr ret = CallNode::make(ref_call->op,
+      {ldata, rdata}, Attrs(attrs), ref_call->type_args);
+    Expr mul = Multiply(lhs->dom_scale, rhs->dom_scale);
+    Expr dom_scale = FoldConstantOpt(mul);
+    return QRealizeIntExprNode::make(ret, dom_scale, out_dtype);
   }
-  Expr rdata = Cast(rhs->data, cfg->dtype_weight);
-
-  const auto ref_attrs = ref_call->attrs.as<Conv2DAttrs>();
-  auto attrs = make_node<Conv2DAttrs>();
-  *attrs = *ref_attrs;
-  DataType out_dtype = cfg->dtype_activation;
-  attrs->out_dtype = out_dtype;
-
-  Expr ret = CallNode::make(ref_call->op,
-    {ldata, rdata}, Attrs(attrs), ref_call->type_args);
-  Expr mul = Multiply(lhs->dom_scale, rhs->dom_scale);
-  Expr dom_scale = FoldConstantOpt(mul);
-  return QRealizeIntExprNode::make(ret, dom_scale, out_dtype);
 }
 
 // RELAY_REGISTER_OP("nn.conv2d")

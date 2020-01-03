@@ -516,6 +516,13 @@ Expr MakeExpandDims(Expr data, int axis, int num_newaxis);
 
 Expr MakeLayoutTransform(Expr data, std::string src_layout, std::string dst_layout);
 
+Expr MakeBitPack(Expr data, int bits, int pack_axis, int bit_axis, DataType pack_type, std::string name);
+
+Expr MakeBinaryConv2D(Expr data, Expr weight, Array<IndexExpr> strides, Array<IndexExpr> padding,
+                      IndexExpr channels, Array<IndexExpr> kernel_size, int activation_bits,
+                      int weight_bits, std::string data_layout, std::string kernel_layout,
+                      DataType pack_dtype, DataType out_dtype, bool unipolar);
+                      
 Expr StopFusion(Expr data);
 
 Expr CastHint(Expr data, DataType dtype, int nbit);

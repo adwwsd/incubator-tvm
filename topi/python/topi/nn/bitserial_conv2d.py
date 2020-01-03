@@ -67,8 +67,10 @@ def bitserial_conv2d_nchw(data, kernel, stride, padding, activation_bits, weight
     assert isinstance(stride, int) or len(stride) == 2
     Input_q = bitpack(data, activation_bits, pack_axis=1, bit_axis=2, pack_type=pack_dtype)
     if len(filter.shape) == 4:
+        print ("not packed")
         Filter_q = bitpack(filter, weight_bits, pack_axis=1, bit_axis=4, pack_type=pack_dtype)
     else:
+        print ("already packed")
         Filter_q = filter
     batch, in_channel, activation_bits, in_height, in_width = Input_q.shape
     num_filter, _, kernel_h, kernel_w, weight_bits = Filter_q.shape
@@ -223,6 +225,9 @@ def spatial_pack_nchw(cfg, data, kernel, stride, padding, in_bits, weight_bits,
     if len(kernel.shape) == 4:
         kernel_q = bitpack(kernel, weight_bits, pack_axis=1, bit_axis=0, pack_type=pack_dtype)
         KB, CO, _, KH, KW = get_const_tuple(kernel_q.shape)
+    elif len(kernel.shape) == 5:
+        kernel_q = kernel
+        KB, CO, _, KH, KW = get_const_tuple(kernel_q.shape)
     else:
         kernel_vec = kernel
         OCO, _, KH, KW, KB, VC = get_const_tuple(kernel_vec.shape)
@@ -286,7 +291,7 @@ def spatial_pack_nchw(cfg, data, kernel, stride, padding, in_bits, weight_bits,
     data_vec = tvm.compute(dvshape, lambda n, h, w, ci, vh, vw, b: \
         data_pad[b][n][ci][h*VH*HSTR+vh][w*VW*WSTR+vw], name='data_vec')
 
-    if len(kernel.shape) == 4:
+    if len(kernel.shape) == 4 or len(kernel.shape) == 5:
         kernel_vec = tvm.compute(kvshape, lambda co, ci, dh, dw, b, vc: \
             kernel_q[b][co*VC+vc][ci][dh][dw], name='kernel_vec')
 
