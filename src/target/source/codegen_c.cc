@@ -573,6 +573,10 @@ void CodeGenC::VisitExpr_(const CallNode* op, std::ostream& os) {  // NOLINT(*)
     os << " *)" << this->GetVarID(l->buffer_var.get())
        << " + ";
     this->PrintExpr(l->index, os);
+    if (l->dtype.bits() == 4 ||
+        (l->dtype.bits() == 1 && l->dtype.is_int())) {
+      os << " / " << (32 / l->dtype.bits());
+    }
     os << ')';
   } else if (op->is_intrinsic(intrinsic::tvm_struct_get)) {
     CHECK_EQ(op->args.size(), 3U);
