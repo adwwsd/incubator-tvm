@@ -197,7 +197,14 @@ def _alter_conv2d_layout(attrs, inputs, tinfos, out_type):
         new_workload = autotvm.task.args_to_workload(
             [data, new_kernel, strides, padding, dilation, out_dtype],
             "conv2d_HWNCnc_tensorcore.cuda")
+        dispatch_ctx.update(target, new_workload, cfg)
+        return relay.nn.conv2d(*inputs, **new_attrs)
 
+    if topi_tmpl == "conv2d_nhwc_tensorcore_im2col.cuda":
+        assert data_layout == "NHWC" and kernel_layout == "OHWI"
+        new_workload = autotvm.task.args_to_workload(
+            [data, kernel, strides, padding, dilation, data_layout, out_dtype],
+            "conv2d_nhwc_tensorcore_im2col.cuda")
         dispatch_ctx.update(target, new_workload, cfg)
         return relay.nn.conv2d(*inputs, **new_attrs)
 
@@ -281,4 +288,5 @@ def _conv2d_legalize(attrs, inputs, arg_types):
             else:
                 out = relay.nn.conv2d(data, kernel, **new_attrs)
             return out
+
     return None
