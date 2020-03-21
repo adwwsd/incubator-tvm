@@ -311,7 +311,12 @@ inline size_t GetDataSize(const DLTensor& arr) {
   for (tvm_index_t i = 0; i < arr.ndim; ++i) {
     size *= static_cast<size_t>(arr.shape[i]);
   }
-  size *= (arr.dtype.bits * arr.dtype.lanes + 7) / 8;
+
+  if (arr.dtype.bits < 8)
+    size = size * arr.dtype.bits / 8;
+  else 
+    size *= (arr.dtype.bits * arr.dtype.lanes + 7) / 8;
+
   return size;
 }
 

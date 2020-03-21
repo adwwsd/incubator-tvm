@@ -135,13 +135,19 @@ class NDArray(NDArrayBase):
             t.lanes = 1
             dtype = str(t)
 
-        if source_array.shape != shape:
+        if source_array.shape != shape and \
+            not (dtype == 'int4' and source_array.dtype == 'int32' and source_array.shape[-1] * 8 == shape[-1]):
             raise ValueError("array shape do not match the shape of NDArray {0} vs {1}".format(
                 source_array.shape, shape))
+
+        if dtype in ['int4', 'uint4']:
+            dtype = 'int32' 
+
         source_array = np.ascontiguousarray(source_array, dtype=dtype)
         assert source_array.flags['C_CONTIGUOUS']
         data = source_array.ctypes.data_as(ctypes.c_void_p)
         nbytes = ctypes.c_size_t(source_array.size * source_array.dtype.itemsize)
+
         check_call(_LIB.TVMArrayCopyFromBytes(self.handle, data, nbytes))
         return self
 

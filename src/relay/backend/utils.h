@@ -147,6 +147,12 @@ inline relay::Function BindParamsByName(
     if (repeat_var.count(arg)) {
       LOG(FATAL) << "Multiple args in the function have name " << kv.first;
     }
+
+    const auto* ttype_node = arg->type_annotation.as<TensorTypeNode>();
+    if (ttype_node->dtype == DataType::Int(4)) {
+      continue;
+    }
+
     bind_dict[arg] = Constant(kv.second);
   }
   Expr bound_expr = relay::Bind(func, bind_dict);

@@ -18,7 +18,7 @@
 """Tensor intrinsics on CUDA."""
 import tvm
 from tvm import te
-
+from tvm import tir
 
 def dp4a(x_scope='local', y_scope='local', z_scope='local'):
     """
@@ -102,6 +102,30 @@ def intrin_wmma_load_matrix_A(strides_dst, strides_from, shape, layout, A_shape,
         ib.emit(tvm.tir.call_intrin('handle', 'tvm_load_matrix_sync',
                                     BC.data, wmma_m, wmma_n, wmma_k, warp_index,
                                     BA.access_ptr('r'), strides_from[0], layout))
+# def intrin_wmma_load_matrix(shape, scope, in_dtype):
+#     n, m, l = shape
+#     if scope == "wmma.matrix_a":
+#         row, col = n, l
+#     elif scope == "wmma.matrix_b":
+#         row, col = m, l
+#     A = te.placeholder((row, col), name='A', dtype=in_dtype)
+#     BA = tir.decl_buffer(A.shape, A.dtype, scope='shared', data_alignment=32, offset_factor=row * col)
+#     C = te.compute((row, col), lambda i, j: A[i, j], name='C')
+#     BC = tir.decl_buffer(C.shape, C.dtype, scope=scope, data_alignment=32, offset_factor=row * col)
+
+#     def intrin_func(ins, outs):
+#         ib = tir.ir_builder.create()
+
+#         BA = ins[0]
+#         BC = outs[0]
+#         if scope == "wmma.matrix_a":
+#             ib.emit(tir.call_intrin('handle', 'tvm_load_matrix_sync',
+#                                     BC.data, n, m, l, BC.elem_offset // (row * col),
+#                                     BA.access_ptr('r'), col, 'row_major'))
+#         elif scope == "wmma.matrix_b":
+#             ib.emit(tir.call_intrin('handle', 'tvm_load_matrix_sync',
+#                                     BC.data, n, m, l, BC.elem_offset // (row * col),
+#                                     BA.access_ptr('r'), col, 'col_major'))
         return ib.get()
 
     return te.decl_tensor_intrin(C.op, intrin_func, binds={A: BA, C: BC})
@@ -190,6 +214,18 @@ def intrin_wmma_gemm(AL_gemm, WL_gemm, CL_compute, strides_A,
     BC = tvm.tir.decl_buffer(C.shape, C.dtype, name='BC',
                              scope='wmma.accumulator', data_alignment=32,
                              offset_factor=8, strides=strides_Conv)
+# def intrin_wmma_gemm(shape, in_dtype, out_dtype='int32'):
+#     n, m, l = shape
+#     A = te.placeholder((n, l), name='A', dtype=in_dtype)
+#     B = te.placeholder((m, l), name='B', dtype=in_dtype)
+#     k = te.reduce_axis((0, l), name="k")
+#     C = te.compute((n, m),
+#                     lambda ii, jj:
+#                     te.sum((A[ii, k] * B[jj, k]).astype(out_dtype), axis=k),
+#                     name='C')
+#     BA = tir.decl_buffer(A.shape, A.dtype, name='BA', scope='wmma.matrix_a', data_alignment=32, offset_factor=n * l)
+#     BB = tir.decl_buffer(B.shape, B.dtype, name='BB', scope='wmma.matrix_b', data_alignment=32, offset_factor=l * m)
+#     BC = tir.decl_buffer(C.shape, C.dtype, name='BC', scope='wmma.accumulator', data_alignment=32, offset_factor=n * m)
 
     def intrin_func(ins, outs):
         BA, BB = ins
@@ -217,8 +253,39 @@ def intrin_wmma_gemm(AL_gemm, WL_gemm, CL_compute, strides_A,
                                         BA.data, warp_index_A,
                                         BB.data, warp_index_B,
                                         BC.data, warp_index_C))
+        # def init():
+        #     ib = tir.ir_builder.create()
+        #     ib.emit(tir.call_intrin('handle', 'tvm_fill_fragment', BC.data, n, m, l, BC.elem_offset // (n * m), 0.0))
+        #     return ib.get()
+
+        # def update():
+        #     ib = tir.ir_builder.create()
+        #     ib.emit(tir.call_intrin('handle', 'tvm_mma_sync',
+        #                             BC.data, BC.elem_offset // (n * m),
+        #                             BA.data, BA.elem_offset // (n * l),
+        #                             BB.data, BB.elem_offset // (l * m),
+        #                             BC.data, BC.elem_offset // (n * m)))
             return ib.get()
 
         return update(), init(), update()
 
     return te.decl_tensor_intrin(C.op, intrin_func, binds={A: BA, B: BB, C: BC})
+
+# def intrin_wmma_store_matrix(shape, dtype):
+#     n, m, l = shape
+#     A = te.placeholder((n, m), name='A', dtype=dtype)
+#     BA = tir.decl_buffer(A.shape, A.dtype, scope='wmma.accumulator', data_alignment=32, offset_factor=n * m)
+#     C = te.compute((n, m), lambda i, j: A[i, j], name='C')
+#     BC = tir.decl_buffer(C.shape, C.dtype, scope='global', data_alignment=32, offset_factor=n * m)
+
+#     def intrin_func(ins, outs):
+#         ib = tir.ir_builder.create()
+
+#         BA = ins[0]
+#         BC = outs[0]
+#         ib.emit(tir.call_intrin('handle', 'tvm_store_matrix_sync',
+#                                 BA.data, n, m, l, BA.elem_offset // (n * m),
+#                                 BC.access_ptr('w'), m, 'row_major'))
+#         return ib.get()
+
+#     return te.decl_tensor_intrin(C.op, intrin_func, binds={A: BA, C: BC})
