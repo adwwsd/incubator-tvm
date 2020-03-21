@@ -17,7 +17,9 @@
 """Definition of CUDA/GPU operator strategy."""
 # pylint: disable=invalid-name,unused-argument,wildcard-import,unused-wildcard-import
 import topi
+import tvm
 from tvm.te import SpecializedCondition
+from tvm.contrib import nvcc
 from .generic import *
 from .. import op as _op
 from .... import get_global_func
@@ -112,13 +114,24 @@ def conv2d_strategy_cuda(attrs, inputs, out_type, target):
                 wrap_compute_conv2d(topi.cuda.conv2d_hwcn),
                 wrap_topi_schedule(topi.cuda.schedule_conv2d_hwcn),
                 name="conv2d_hwcn.cuda")
-        # TODO(@alexgl-github): Re-enable this after fix the conv2d_nhwc for cuda
-        # elif layout == "NHWC":
-        #     assert kernel_layout == "HWIO"
-        #     strategy.add_implementation(
-        #         wrap_compute_conv2d(topi.cuda.conv2d_nhwc),
-        #         wrap_topi_schedule(topi.cuda.schedule_conv2d_nhwc),
-        #         name="conv2d_nhwc.cuda")
+
+        elif layout == "NHWC":
+            assert kernel_layout in ["HWIO", "OHWI"]
+
+            strategy.add_implementation(
+                wrap_compute_conv2d(topi.cuda.conv2d_nhwc),
+                wrap_topi_schedule(topi.cuda.schedule_conv2d_nhwc),
+                name="conv2d_nhwc.cuda")
+
+            if nvcc.have_tensorcore(tvm.gpu(0).compute_version):
+                if data.dtype in ['int4', 'uint4'] and kernel.dtype in ['int4', 'uint4'] and \
+                    data.dtype == kernel.dtype and kernel_layout == "OHWI":
+                    strategy.add_implementation(
+                        wrap_compute_conv2d(topi.cuda.conv2d_nhwc_tensorcore_im2col, need_data_layout=True),
+                        wrap_topi_schedule(topi.cuda.schedule_conv2d_nhwc_tensorcore_im2col),
+                        name="conv2d_nhwc_tensorcore_im2col",
+                        plevel=20)
+
         elif layout == "NCHW4c" and data.dtype in ["int8", "uint8"]:
             assert kernel_layout == "OIHW4o4i"
             strategy.add_implementation(
