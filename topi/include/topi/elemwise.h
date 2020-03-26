@@ -33,6 +33,7 @@
 namespace topi {
 using namespace tvm;
 using namespace tvm::te;
+using namespace topi::detail;
 
 // Unary intrinsic operators
 #define TOPI_DECLARE_UNARY_OP(OpName)                           \
@@ -283,6 +284,30 @@ inline Tensor cast(const Tensor& x,
                    DataType type,
                    std::string name = "T_cast",
                    std::string tag = kElementWise) {
+  if (type.bits() == 4) {
+    auto ndim = x.ndim();
+    return compute(x->shape, [&](const Array<Var>& indices) {
+        // Get the last axis dim
+        Array<PrimExpr> dst_idx [8];
+        for (size_t i = 0; i < ndim - 1; ++i) {
+          for (int j = 0; j < 8; ++j)
+            dst_idx[j].push_back(indices[i]);
+        }
+
+        PrimExpr alinged_index = indices[ndim-1] & PrimExpr(-8);
+
+        for (int j = 0; j < 8; ++j)
+            dst_idx[j].push_back(alinged_index + j);
+
+        PrimExpr pack = PrimExpr(0);
+        PrimExpr mask = PrimExpr(0xf);
+        for (int j = 0; j < 8; ++j) {
+          pack = pack | ((x(dst_idx[j]) & mask) << PrimExpr(((7 - j) * 4)));
+        }
+        return tvm::cast(DataType::Int(4), pack);
+      }, name, tag);
+  }
+
   return compute(x->shape, [&](const Array<Var>& i) {
     auto expr = x(i);
     if (expr.dtype().code() == type.code() && expr.dtype().bits() == type.bits()) {
