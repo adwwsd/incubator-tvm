@@ -115,7 +115,7 @@ BindParamsByName(relay::Function func,
     }
 
     const auto* ttype_node = arg->type_annotation.as<TensorTypeNode>();
-    if (ttype_node->dtype == DataType::Int(4)) {
+    if (ttype_node && ttype_node->dtype == DataType::Int(4)) {
       continue;
     }
 

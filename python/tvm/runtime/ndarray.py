@@ -141,7 +141,7 @@ class NDArray(NDArrayBase):
                 source_array.shape, shape))
 
         if dtype in ['int4', 'uint4']:
-            dtype = 'int32' 
+            dtype = 'int32'
 
         source_array = np.ascontiguousarray(source_array, dtype=dtype)
         assert source_array.flags['C_CONTIGUOUS']
@@ -173,6 +173,12 @@ class NDArray(NDArrayBase):
             shape = shape + (t.lanes,)
             t.lanes = 1
             dtype = str(t)
+
+        if dtype in ['int4', 'uint4']:
+            shape = list(shape)
+            shape[-1] = (shape[-1] + 7)// 8
+            dtype = 'int32'
+
         np_arr = np.empty(shape, dtype=dtype)
         assert np_arr.flags['C_CONTIGUOUS']
         data = np_arr.ctypes.data_as(ctypes.c_void_p)
