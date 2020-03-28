@@ -47,6 +47,9 @@ void CodeGenCUDA::Init(bool output_ssa) {
 void CodeGenCUDA::PrintFuncPrefix() { stream << "extern \"C\" __global__ void"; }
 
 std::string CodeGenCUDA::Finish() {
+  decl_stream << "__device__ inline long max(int a, long b)\n"
+            << "{\n  return max((long)a, b);\n}\n";
+
   if (enable_fp16_) {
     decl_stream << "#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 530)\n";
     decl_stream << "#include <cuda_fp16.h>\n";
