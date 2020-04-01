@@ -47,10 +47,12 @@ bool QnnConv2DRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
   if (data == nullptr || weight == nullptr) return false;
   const auto* param = attrs.as<Conv2DAttrs>();
   CHECK(param != nullptr) << "Conv2DAttrs cannot be nullptr.";
-  CHECK(data->dtype == DataType::Int(8) || data->dtype == DataType::UInt(8))
-      << "Expected qnn conv2d type(int8, uint8) for input but was " << data->dtype;
-  CHECK(weight->dtype == DataType::Int(8) || weight->dtype == DataType::UInt(8))
-      << "Expected qnn conv2d type(int8, uint8) for weight but was " << weight->dtype;
+  CHECK(data->dtype == DataType::Int(8) || data->dtype == DataType::UInt(8) ||
+        data->dtype == DataType::Int(4) || data->dtype == DataType::UInt(4))
+      << "Expected qnn conv2d type(int8, uint8, int4, uint4) for input but was " << data->dtype;
+  CHECK(weight->dtype == DataType::Int(8) || weight->dtype == DataType::UInt(8) ||
+        weight->dtype == DataType::Int(4) || weight->dtype == DataType::UInt(4))
+      << "Expected qnn conv2d type(int8, uint8, int4, uint4) for weight but was " << weight->dtype;
   CHECK(param->out_dtype == DataType::Int(16) || param->out_dtype == DataType::Int(32))
       << "Expected qnn conv2d type(int32, int16) for output but was " << param->out_dtype;
   CHECK(param->out_dtype.bits() > 0) << "Output dtype bits should be greater than 0.";
@@ -138,6 +140,13 @@ WorkloadType GetWorkload(const Array<tvm::relay::Type>& arg_types, const Conv2DA
     kernel_h = get_const_int(kernel_shape[0]);
     kernel_w = get_const_int(kernel_shape[1]);
     out_channels = get_const_int(kernel_shape[2]);
+    if (depthwise) {
+      channel_multiplier = get_const_int(kernel_shape[3]);
+    }
+  } else if (param->kernel_layout == "OHWI") {
+    kernel_h = get_const_int(kernel_shape[1]);
+    kernel_w = get_const_int(kernel_shape[2]);
+    out_channels = get_const_int(kernel_shape[0]);
     if (depthwise) {
       channel_multiplier = get_const_int(kernel_shape[3]);
     }
@@ -449,6 +458,8 @@ Expr Conv2DThirdTerm(const Expr& weight, const Expr& input_zero_point, const Con
     axes_t3 = {0, 1, 2};
   } else if (param->kernel_layout == "HWOI") {
     axes_t3 = {0, 1, 3};
+  } else if (param->kernel_layout == "OHWI") {
+    axes_t3 = {1, 2, 3};
   } else {
     LOG(FATAL) << "qnn.conv2d does not support " << param->kernel_layout << " layout";
   }
@@ -610,7 +621,7 @@ Expr QnnConv2DCanonicalize(const Attrs& attrs, const Array<Expr>& new_args,
   CHECK(param->data_layout == "NCHW" || param->data_layout == "NHWC")
       << "qnn.conv2d supports only NCHW/NHWC input data layout.";
   CHECK(param->kernel_layout == "OIHW" || param->kernel_layout == "HWIO" ||
-        param->kernel_layout == "HWOI")
+        param->kernel_layout == "HWOI" || param->kernel_layout == "OHWI")
       << "qnn.conv2d supports only OIHW/HWIO/HWOI kernel data layout.";
 
   int batch_size, in_channels, out_channels, kernel_h, kernel_w, channel_multiplier;
