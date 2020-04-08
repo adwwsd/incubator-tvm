@@ -82,12 +82,19 @@ def conv2d_nhwc_tensorcore_im2col(cfg, data, kernel, stride, padding, dilation, 
         5-D with shape [batch, out_height, out_width, out_channels]
     """
     assert layout == 'NHWC'
-    assert data.dtype in ['int4'] and kernel.dtype in ['int4']
+    assert data.dtype in ['int8', 'uint8', 'int4', 'uint4'] and kernel.dtype in ['int8', 'uint8', 'int4', 'uint4']
+    assert data.dtype == kernel.dtype
 
-    kernel_size_m = 8
-    kernel_size_n = 8
-    kernel_size_k = 32
-    ELE_PER_INT = 8
+    if data.dtype == 'int8' or data.dtype == 'uint8':
+        kernel_size_m = 16
+        kernel_size_n = 16
+        kernel_size_k = 16
+        ELE_PER_INT = 4
+    elif data.dtype == 'int4' or data.dtype == 'uint4':
+        kernel_size_m = 8
+        kernel_size_n = 8
+        kernel_size_k = 32
+        ELE_PER_INT = 8
 
     batch_size, in_height, in_width, _ = get_const_tuple(data.shape)
     out_channels, kernel_h, kernel_w, in_channels = get_const_tuple(kernel.shape)
@@ -117,10 +124,7 @@ def conv2d_nhwc_tensorcore_im2col(cfg, data, kernel, stride, padding, dilation, 
     out_width = (in_width - kernel_w + pad_left + pad_right) // stride_w + 1
 
     # Validate the shape
-    assert in_channels % ELE_PER_INT == 0
-    assert out_channels >= kernel_size_m
-    assert in_channels * kernel_h * kernel_w >= kernel_size_k
-    assert batch_size * out_height * out_width >= kernel_size_n
+    assert not data.dtype in ['int4', 'uint4'] or in_channels % ELE_PER_INT == 0
 
     def upalign(x, align):
         return (x + align - 1) // align * align
@@ -137,22 +141,20 @@ def conv2d_nhwc_tensorcore_im2col(cfg, data, kernel, stride, padding, dilation, 
     # im2col kernel
     kernel_im2col = te.compute((im2col_M, im2col_K), lambda i, j: \
                             te.if_then_else(te.all(i < out_channels, j < in_channels * kernel_h * kernel_w),
-                            kernel[i, j // (in_channels * kernel_w), (j // in_channels) % kernel_w, j % in_channels], 
+                            kernel[i, j // (in_channels * kernel_w), (j // in_channels) % kernel_w, j % in_channels],
                             tir.const(0, 'int4')), name='kernel_im2col')
-
 
     # Tranposed im2col
     data_im2col_T = te.compute((im2col_N, im2col_K), lambda i, j: \
                             te.if_then_else(te.all(i < batch_size * out_height * out_width, j < in_channels * kernel_h * kernel_w),
-                            pad_data[i // (out_height * out_width), 
+                            pad_data[i // (out_height * out_width),
                             (i // batch_size // out_width % out_height * stride_h) + j // (in_channels * kernel_w),
                             (i % out_width * stride_w) + (j // in_channels) % kernel_w,
                             j % in_channels],
-                            tir.const(0, 'int4')), name='data_im2col_T') 
-
+                            tir.const(0, 'int4')), name='data_im2col_T')
 
     # Further pack the data and kernel to better fit the tensor core computation
-    A = te.compute((mm, kk, kernel_size_m, kernel_size_k), 
+    A = te.compute((mm, kk, kernel_size_m, kernel_size_k),
                                     lambda i, j, ii, jj: kernel_im2col[i * kernel_size_m + ii][j * kernel_size_k + jj], name='kernel_im2col_pack')
     B = te.compute((nn, kk, kernel_size_n, kernel_size_k),
                                     lambda i, j, ii, jj: data_im2col_T[i * kernel_size_n + ii][j * kernel_size_k + jj], name='data_im2col_T_pack')
@@ -160,18 +162,20 @@ def conv2d_nhwc_tensorcore_im2col(cfg, data, kernel, stride, padding, dilation, 
     # GEMM
     k1 = te.reduce_axis((0, kk), name='k1')
     k2 = te.reduce_axis((0, kernel_size_k), name='k2')
-    C = te.compute((mm, nn, kernel_size_m, kernel_size_n), 
+    C = te.compute((mm, nn, kernel_size_m, kernel_size_n),
                     lambda i, j, ii, jj: te.sum((A[i, k1, ii, k2] * B[j, k1, jj, k2]).astype('int32'), axis=[k1, k2]),
                     name='gemm_C')
 
     # Unpack C
-    C_unpack = te.compute((im2col_M, im2col_N), 
+    C_unpack = te.compute((im2col_M, im2col_N),
                             lambda i, j: C[i // kernel_size_m, j // kernel_size_n, i % kernel_size_m, j % kernel_size_n],
                             name='C_unpack')
-                            
+
     # Transform the result back
+    # C_unpack[im2col_M-1, im2col_N-1] - C_unpack[im2col_M-1, im2col_N-1] is usded to prevent missing alignemnt due to the optimization
     output = te.compute((batch_size, out_height, out_width, out_channels), lambda n, oh, ow, oc: \
-                            C_unpack[oc, n * out_width * out_height + oh * out_width + ow].astype(out_dtype), 
+                            (C_unpack[oc, n * out_width * out_height + oh * out_width + ow] + C_unpack[im2col_M - 1, im2col_N - 1] \
+                                - C_unpack[im2col_M - 1, im2col_N - 1]).astype(out_dtype),
                             name='output', tag='conv2d_nhwc_tensorcore_im2col')
 
     return output
@@ -225,7 +229,7 @@ def _schedule_conv2d_nhwc_tensorcore_im2col(cfg, s, output):
 
     # Schedule the output transformation
     s[C_unpack].compute_inline()
-    
+
     # Handle bias
     if output.op not in s.outputs:
         s[output].compute_inline()
@@ -282,17 +286,15 @@ def _schedule_conv2d_nhwc_tensorcore_im2col(cfg, s, output):
     s[BS].bind(ty, thread_z)
     s[BS].bind(to, thread_x)
 
-    # print(tvm.lower(s, [kernel_im2col.op.input_tensors[0], pad_data.op.input_tensors[0], output], simple_mode=True))
+    dtype = data_im2col_T.dtype
+    if dtype == 'int8':
+        shape_mnk = (16, 16, 16)
+    elif dtype == 'int4':
+        shape_mnk = (8, 8, 32)
 
-    s[AF].tensorize(AF.op.axis[-2], intrin_wmma_load_matrix((8, 8, 32), 'wmma.matrix_a', 'int4'))
-    s[BF].tensorize(BF.op.axis[-2], intrin_wmma_load_matrix((8, 8, 32), 'wmma.matrix_b', 'int4'))
-    s[C].tensorize(kernel_i, intrin_wmma_store_matrix((8, 8, 32), 'int32'))
-    s[CF].tensorize(_i, intrin_wmma_gemm((8, 8, 32), 'int4'))
-
-    # print(tvm.lower(s, [kernel_im2col.op.input_tensors[0], pad_data.op.input_tensors[0], output], simple_mode=True))
+    s[AF].tensorize(AF.op.axis[-2], intrin_wmma_load_matrix(shape_mnk, 'wmma.matrix_a', dtype))
+    s[BF].tensorize(BF.op.axis[-2], intrin_wmma_load_matrix(shape_mnk, 'wmma.matrix_b', dtype))
+    s[C].tensorize(kernel_i, intrin_wmma_store_matrix(shape_mnk, 'int32'))
+    s[CF].tensorize(_i, intrin_wmma_gemm(shape_mnk, dtype))
 
     return s
-
-
-
-    
