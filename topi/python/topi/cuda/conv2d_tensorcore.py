@@ -142,7 +142,7 @@ def conv2d_nhwc_tensorcore_im2col(cfg, data, kernel, stride, padding, dilation, 
     kernel_im2col = te.compute((im2col_M, im2col_K), lambda i, j: \
                             te.if_then_else(te.all(i < out_channels, j < in_channels * kernel_h * kernel_w),
                             kernel[i, j // (in_channels * kernel_w), (j // in_channels) % kernel_w, j % in_channels],
-                            tir.const(0, 'int4')), name='kernel_im2col')
+                            tir.const(0, data.dtype)), name='kernel_im2col')
 
     # Tranposed im2col
     data_im2col_T = te.compute((im2col_N, im2col_K), lambda i, j: \
@@ -151,7 +151,7 @@ def conv2d_nhwc_tensorcore_im2col(cfg, data, kernel, stride, padding, dilation, 
                             (i // batch_size // out_width % out_height * stride_h) + j // (in_channels * kernel_w),
                             (i % out_width * stride_w) + (j // in_channels) % kernel_w,
                             j % in_channels],
-                            tir.const(0, 'int4')), name='data_im2col_T')
+                            tir.const(0, data.dtype)), name='data_im2col_T')
 
     # Further pack the data and kernel to better fit the tensor core computation
     A = te.compute((mm, kk, kernel_size_m, kernel_size_k),
@@ -198,15 +198,40 @@ def _schedule_conv2d_nhwc_tensorcore_im2col(cfg, s, output):
     C = C_unpack.op.input_tensors[0]
     A, B = C.op.input_tensors
     kernel_im2col = A.op.input_tensors[0]
+    kernel = kernel_im2col.op.input_tensors[0]
     data_im2col_T = B.op.input_tensors[0]
     pad_data = data_im2col_T.op.input_tensors[0]
 
+    N, OH, OW, CO = get_const_tuple(output.shape)
+    _, KH, KW, CI = get_const_tuple(kernel.shape)
+    cfg.add_flop(2 * N * OH * OW * CO * CI * KH * KW)
+
+    cfg.define_knob("block_row_warps", [1, 2, 4])
+    cfg.define_knob("block_col_warps", [1, 2, 4])
+    cfg.define_knob("warp_row_tiles", [1, 2, 4])
+    cfg.define_knob("warp_col_tiles", [1, 2, 4])
+    cfg.define_knob("chunk", [1, 2, 4, 8, 16])
+
+    # fallback support
+    target = tvm.target.Target.current()
+    if cfg.is_fallback:
+        ref_log = autotvm.tophub.load_reference_log(
+            target.target_name, target.model, 'conv2d_nhwc_tensorcore_im2col.cuda')
+        cfg.fallback_with_reference_log(ref_log)
+
+    block_row_warps = cfg["block_row_warps"].val
+    block_col_warps = cfg["block_col_warps"].val
+    warp_row_tiles = cfg["warp_row_tiles"].val
+    warp_col_tiles = cfg["warp_col_tiles"].val
+    chunk = cfg["chunk"].val
+
     warp_size = 32
-    block_row_warps = 2
-    block_col_warps = 4
-    warp_row_tiles = 2
-    warp_col_tiles = 1
-    chunk = 4
+
+    # block_row_warps = 2
+    # block_col_warps = 4
+    # warp_row_tiles = 2
+    # warp_col_tiles = 1
+    # chunk = 4
 
     block_x = te.thread_axis('blockIdx.x')
     block_y = te.thread_axis('blockIdx.y')
