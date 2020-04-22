@@ -202,9 +202,31 @@ def _alter_conv2d_layout(attrs, inputs, tinfos, out_type):
 
     if topi_tmpl == "conv2d_nhwc_tensorcore_im2col.cuda":
         assert data_layout == "NHWC" and kernel_layout == "OHWI"
+
+        N, H, W, CI = get_const_tuple(data.shape)
+        CO, KH, KW, _ = get_const_tuple(kernel.shape)
+
+        if kernel.dtype in ['int4', 'uint4'] and (CI % 32 != 0 or CO % 8 != 0) or \
+            kernel.dtype in ['int8', 'uint8'] and (CI % 16 != 0 or CO % 16 != 0):
+            return relay.nn.conv2d(*inputs, **new_attrs)
+
+        new_attrs["channels"] = CO
+        if kernel.dtype in ['int4', 'uint4']:
+            new_attrs['kernel_layout'] = 'OHWI8o32i'
+            ic_block_factor = 32
+            oc_block_factor = 8
+        else:
+            new_attrs['kernel_layout']= 'OHWI16o16i'
+            ic_block_factor = 16
+            oc_block_factor = 16
+
+        new_kernel = te.placeholder((CO // oc_block_factor, KH, KW, CI // ic_block_factor,
+                                    oc_block_factor, ic_block_factor), dtype=kernel.dtype)
+
         new_workload = autotvm.task.args_to_workload(
-            [data, kernel, strides, padding, dilation, data_layout, out_dtype],
+            [data, new_kernel, strides, padding, dilation, data_layout, out_dtype],
             "conv2d_nhwc_tensorcore_im2col.cuda")
+
         dispatch_ctx.update(target, new_workload, cfg)
         return relay.nn.conv2d(*inputs, **new_attrs)
 

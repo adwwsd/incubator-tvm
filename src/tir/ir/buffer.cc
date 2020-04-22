@@ -285,12 +285,22 @@ inline PrimExpr BufferOffset(const BufferNode* n, Array<PrimExpr> index, DataTyp
 PrimExpr Buffer::vload(Array<PrimExpr> begin, DataType dtype) const {
   // specially handle bool, stored as DataType::Int(8)
   const BufferNode* n = operator->();
-  CHECK(dtype.element_of() == n->dtype.element_of() && dtype.lanes() % n->dtype.lanes() == 0)
-      << "Cannot load " << dtype << " from buffer of " << n->dtype;
-  if (dtype == DataType::Bool()) {
-    return tir::Cast(DataType::Bool(),
-                     tir::Load(DataType::Int(8), n->data, BufferOffset(n, begin, DataType::Int(8)),
-                               const_true()));
+  CHECK(dtype.element_of() == n->dtype.element_of() &&
+        dtype.lanes() % n->dtype.lanes() == 0)
+      << "Cannot load " << dtype
+      << " from buffer of " << n->dtype;
+
+  if (n->dtype == DataType::Int(4) || n->dtype == DataType::UInt(4)) {
+    PrimExpr new_index = tir::DivNode::make(BufferOffset(n, begin, n->dtype), 32 / n->dtype.bits());
+    return tir::LoadNode::make(
+            DataType::Int(32), n->data, new_index,
+            const_true());
+  } else if (dtype == DataType::Bool()) {
+    return tir::CastNode::make(
+        DataType::Bool(),
+        tir::LoadNode::make(
+            DataType::Int(8), n->data, BufferOffset(n, begin, DataType::Int(8)),
+            const_true()));
   } else {
     return tir::Load(dtype, n->data, BufferOffset(n, begin, dtype), const_true(dtype.lanes()));
   }
@@ -300,11 +310,20 @@ Stmt Buffer::vstore(Array<PrimExpr> begin, PrimExpr value) const {
   // specially handle bool, stored as DataType::Int(8)
   const BufferNode* n = operator->();
   DataType dtype = value.dtype();
-  CHECK(dtype.element_of() == n->dtype.element_of() && dtype.lanes() % n->dtype.lanes() == 0)
-      << "Cannot store " << dtype << " to buffer of " << n->dtype;
-  if (value.dtype() == DataType::Bool()) {
-    return tir::Store(n->data, tir::Cast(DataType::Int(8), value),
-                      BufferOffset(n, begin, DataType::Int(8)), const_true());
+  if (!(n->dtype == DataType::Int(4) || n->dtype == DataType::UInt(4)))
+    CHECK(dtype.element_of() == n->dtype.element_of() &&
+          dtype.lanes() % n->dtype.lanes() == 0)
+        << "Cannot load " << dtype
+        << " from buffer of " << n->dtype;
+
+  if (n->dtype == DataType::Int(4) || n->dtype == DataType::UInt(4)) {
+    PrimExpr new_index = tir::DivNode::make(BufferOffset(n, begin, n->dtype), 32 / n->dtype.bits());
+    return tir::StoreNode::make(n->data, value, new_index, const_true());
+  } if (value.dtype() == DataType::Bool()) {
+    return tir::StoreNode::make(n->data,
+                           tir::CastNode::make(DataType::Int(8), value),
+                           BufferOffset(n, begin, DataType::Int(8)),
+                           const_true());
   } else {
     return tir::Store(n->data, value, BufferOffset(n, begin, dtype), const_true(dtype.lanes()));
   }

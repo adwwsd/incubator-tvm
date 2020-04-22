@@ -176,9 +176,6 @@ std::string CodeGenC::GetBufferRef(DataType t, const VarNode* buffer, PrimExpr i
     os << "[(";
     PrintExpr(index, os);
     os << ")";
-    if (t.bits() == 4 || (t.bits() == 1 && t.is_int())) {
-      os << " / " << (32 / t.bits());
-    }
     os << ']';
   } else {
     // Buffer declared as vector type.
@@ -212,9 +209,6 @@ std::string CodeGenC::GetBufferRef(DataType t, const VarNode* buffer, PrimExpr i
     os << vid << " + (";
     PrintExpr(index, os);
     os << ")";
-    if (t.bits() == 4 || (t.bits() == 1 && t.is_int())) {
-      os << " / " << (32 / t.bits());
-    }
     os << "))[0]";
   }
   return os.str();

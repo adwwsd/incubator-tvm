@@ -96,8 +96,14 @@ def conv2d_nhwc_tensorcore_im2col(cfg, data, kernel, stride, padding, dilation, 
         kernel_size_k = 32
         ELE_PER_INT = 8
 
-    batch_size, in_height, in_width, _ = get_const_tuple(data.shape)
-    out_channels, kernel_h, kernel_w, in_channels = get_const_tuple(kernel.shape)
+    batch_size, in_height, in_width, in_channels = get_const_tuple(data.shape)
+
+    pre_computed = len(kernel.shape) == 6
+    if pre_computed:
+        oc_chunk, kernel_h, kernel_w, ic_chunk, oc_block_factor, ic_block_factor = get_const_tuple(kernel.shape)
+        out_channels = oc_chunk * oc_block_factor
+    else:
+        out_channels, kernel_h, kernel_w, _ = get_const_tuple(kernel.shape)
 
     if isinstance(stride, int):
         stride_h = stride_w = stride
@@ -119,6 +125,14 @@ def conv2d_nhwc_tensorcore_im2col(cfg, data, kernel, stride, padding, dilation, 
     pad_after = [0, pad_down, pad_right, 0]
     pad_data = pad(data, pad_before, pad_after, name="pad_data")
 
+    # pad_data = te.compute(
+    #     (batch_size, in_height + pad_top + pad_down, in_width + pad_left + pad_right, in_channels),
+    #     lambda n, h, w, i: tvm.tir.if_then_else(
+    #         tvm.tir.all(h >= pad_down, h - pad_top < in_height,
+    #                 w >= pad_left, w - pad_right < in_width),
+    #         data[n, h - pad_down, w - pad_left, i], tvm.tir.const(0, data.dtype)),
+    #     name='pad', tag='pad_data')
+
     # compute the output shape
     out_height = (in_height - kernel_h + pad_top + pad_down) // stride_h + 1
     out_width = (in_width - kernel_w + pad_left + pad_right) // stride_w + 1
@@ -130,34 +144,41 @@ def conv2d_nhwc_tensorcore_im2col(cfg, data, kernel, stride, padding, dilation, 
         return (x + align - 1) // align * align
 
     # Transform the input and the kernel to im2col format
-    im2col_M = upalign(out_channels, kernel_size_m)
+    im2col_M = upalign(batch_size * out_height * out_width, kernel_size_m)
     im2col_K = upalign(in_channels * kernel_h * kernel_w, kernel_size_k)
-    im2col_N = upalign(batch_size * out_height * out_width, kernel_size_n)
+    im2col_N = upalign(out_channels, kernel_size_n)
 
     mm = im2col_M // kernel_size_m
     nn = im2col_N // kernel_size_n
     kk = im2col_K // kernel_size_k
 
-    # im2col kernel
-    kernel_im2col = te.compute((im2col_M, im2col_K), lambda i, j: \
-                            te.if_then_else(te.all(i < out_channels, j < in_channels * kernel_h * kernel_w),
-                            kernel[i, j // (in_channels * kernel_w), (j // in_channels) % kernel_w, j % in_channels],
-                            tir.const(0, data.dtype)), name='kernel_im2col')
+    # data im2col
+    data_im2col = te.compute((im2col_M, im2col_K), lambda i, j: \
+                                te.if_then_else(te.all(i < batch_size * out_height * out_width, j < in_channels * kernel_h * kernel_w),
+                                pad_data[i // (out_height * out_width),
+                                ((i // out_width % out_height) * stride_h) + j // (in_channels * kernel_w),
+                                (i % out_width * stride_w) + (j // in_channels) % kernel_w,
+                                j % in_channels],
+                                tir.const(0, data.dtype)), name='data_im2col')
 
-    # Tranposed im2col
-    data_im2col_T = te.compute((im2col_N, im2col_K), lambda i, j: \
-                            te.if_then_else(te.all(i < batch_size * out_height * out_width, j < in_channels * kernel_h * kernel_w),
-                            pad_data[i // (out_height * out_width),
-                            (i // batch_size // out_width % out_height * stride_h) + j // (in_channels * kernel_w),
-                            (i % out_width * stride_w) + (j // in_channels) % kernel_w,
-                            j % in_channels],
-                            tir.const(0, data.dtype)), name='data_im2col_T')
+    # Tranposed kernel im2col
+    if pre_computed:
+        B = te.compute((nn, kk, kernel_size_n, kernel_size_k),
+                        lambda i, j, ii, jj: \
+                        kernel[i, j // (ic_chunk * kernel_w), (j // ic_chunk) % kernel_w, j % ic_chunk, ii, jj],
+                        name='kernel_im2col_pack')
+    else:
+        kernel_im2col = te.compute((im2col_N, im2col_K), lambda i, j: \
+                                te.if_then_else(te.all(i < out_channels, j < in_channels * kernel_h * kernel_w),
+                                kernel[i, j // (in_channels * kernel_w), (j // in_channels) % kernel_w, j % in_channels],
+                                tir.const(0, data.dtype)),
+                                name='kernel_im2col', tag='kernel_im2col')
+        B = te.compute((nn, kk, kernel_size_n, kernel_size_k),
+                                        lambda i, j, ii, jj: kernel_im2col[i * kernel_size_n + ii][j * kernel_size_k + jj], name='kernel_im2col_pack')
 
     # Further pack the data and kernel to better fit the tensor core computation
     A = te.compute((mm, kk, kernel_size_m, kernel_size_k),
-                                    lambda i, j, ii, jj: kernel_im2col[i * kernel_size_m + ii][j * kernel_size_k + jj], name='kernel_im2col_pack')
-    B = te.compute((nn, kk, kernel_size_n, kernel_size_k),
-                                    lambda i, j, ii, jj: data_im2col_T[i * kernel_size_n + ii][j * kernel_size_k + jj], name='data_im2col_T_pack')
+                                    lambda i, j, ii, jj: data_im2col[i * kernel_size_m + ii][j * kernel_size_k + jj], name='data_im2col_pack')
 
     # GEMM
     k1 = te.reduce_axis((0, kk), name='k1')
@@ -171,13 +192,10 @@ def conv2d_nhwc_tensorcore_im2col(cfg, data, kernel, stride, padding, dilation, 
                             lambda i, j: C[i // kernel_size_m, j // kernel_size_n, i % kernel_size_m, j % kernel_size_n],
                             name='C_unpack')
 
-    # Transform the result back
-    # C_unpack[im2col_M-1, im2col_N-1] - C_unpack[im2col_M-1, im2col_N-1] is usded to prevent missing alignemnt due to the optimization
     output = te.compute((batch_size, out_height, out_width, out_channels), lambda n, oh, ow, oc: \
-                            (C_unpack[oc, n * out_width * out_height + oh * out_width + ow] + C_unpack[im2col_M - 1, im2col_N - 1] \
+                            (C_unpack[n * out_width * out_height + oh * out_width + ow, oc] + C_unpack[im2col_M - 1, im2col_N - 1] \
                                 - C_unpack[im2col_M - 1, im2col_N - 1]).astype(out_dtype),
                             name='output', tag='conv2d_nhwc_tensorcore_im2col')
-
     return output
 
 @autotvm.register_topi_schedule("conv2d_nhwc_tensorcore_im2col.cuda")
@@ -197,13 +215,30 @@ def _schedule_conv2d_nhwc_tensorcore_im2col(cfg, s, output):
     C_unpack = output.op.input_tensors[0]
     C = C_unpack.op.input_tensors[0]
     A, B = C.op.input_tensors
-    kernel_im2col = A.op.input_tensors[0]
-    kernel = kernel_im2col.op.input_tensors[0]
-    data_im2col_T = B.op.input_tensors[0]
-    pad_data = data_im2col_T.op.input_tensors[0]
+
+    data_im2col = A.op.input_tensors[0]
+    pad_data = data_im2col.op.input_tensors[0]
+    kernel_im2col = B.op.input_tensors[0]
+
+    # Schedule padding
+    if isinstance(pad_data.op, te.tensor.ComputeOp) and "pad" in pad_data.op.tag:
+        s[pad_data].compute_inline()
+        data = pad_data.op.input_tensors[0]
+    else:
+        data = pad_data
+
+    pre_computed = 0
+    if isinstance(kernel_im2col.op, te.tensor.ComputeOp) and 'kernel_im2col' in kernel_im2col.op.tag:
+        kernel = kernel_im2col.op.input_tensors[0]
+        _, KH, KW, CI = get_const_tuple(kernel.shape)
+    else:
+        pre_computed = 1
+        kernel = kernel_im2col
+        _, KH, KW, CI_chunk, _, ic_block_factor = get_const_tuple(kernel.shape)
+        CI = CI_chunk * ic_block_factor
 
     N, OH, OW, CO = get_const_tuple(output.shape)
-    _, KH, KW, CI = get_const_tuple(kernel.shape)
+
     cfg.add_flop(2 * N * OH * OW * CO * CI * KH * KW)
 
     cfg.define_knob("block_row_warps", [1, 2, 4])
@@ -240,17 +275,16 @@ def _schedule_conv2d_nhwc_tensorcore_im2col(cfg, s, output):
     thread_y = te.thread_axis('threadIdx.y')
     thread_z = te.thread_axis('threadIdx.z')
 
-    # Schedule padding
-    if isinstance(pad_data.op, te.tensor.ComputeOp) and "pad" in pad_data.op.tag:
-        s[pad_data].compute_inline()
-
     # Schedule im2col
-    s[data_im2col_T].compute_inline()
-    s[kernel_im2col].compute_inline()
-
+    s[data_im2col].compute_inline()
     # Schedule pack
     schedule_injective_from_existing(s, A)
-    schedule_injective_from_existing(s, B)
+
+    if not pre_computed:
+        s[kernel_im2col].compute_inline()
+        schedule_injective_from_existing(s, B)
+    else:
+        s[B].compute_inline()
 
     # Schedule the output transformation
     s[C_unpack].compute_inline()
@@ -311,7 +345,7 @@ def _schedule_conv2d_nhwc_tensorcore_im2col(cfg, s, output):
     s[BS].bind(ty, thread_z)
     s[BS].bind(to, thread_x)
 
-    dtype = data_im2col_T.dtype
+    dtype = data_im2col.dtype
     if dtype == 'int8':
         shape_mnk = (16, 16, 16)
     elif dtype == 'int4':
