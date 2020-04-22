@@ -188,10 +188,6 @@ std::string CodeGenC::GetBufferRef(
     os << "[(";
     PrintExpr(index, os);
     os << ")";
-    if (t.bits() == 4 ||
-        (t.bits() == 1 && t.is_int())) {
-      os << " / " << (32 / t.bits());
-    }
     os << ']';
   } else {
     // Buffer declared as vector type.
@@ -228,10 +224,6 @@ std::string CodeGenC::GetBufferRef(
     os << vid << " + (";
     PrintExpr(index, os);
     os << ")";
-    if (t.bits() == 4 ||
-        (t.bits() == 1 && t.is_int())) {
-      os << " / " << (32 / t.bits());
-    }
     os << "))[0]";
   }
   return os.str();
@@ -601,8 +593,7 @@ void CodeGenC::VisitExpr_(const CallNode* op, std::ostream& os) {  // NOLINT(*)
     os << " *)" << this->GetVarID(l->buffer_var.get())
        << " + ";
     this->PrintExpr(l->index, os);
-    if (l->dtype.bits() == 4 ||
-        (l->dtype.bits() == 1 && l->dtype.is_int())) {
+    if ((l->dtype.bits() == 4 || l->dtype.bits() == 1) && l->dtype.is_int()) {
       os << " / " << (32 / l->dtype.bits());
     }
     os << ')';

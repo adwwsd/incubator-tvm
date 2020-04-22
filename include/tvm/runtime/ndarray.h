@@ -123,7 +123,7 @@ class NDArray : public ObjectRef {
    * \note The memory size of new array must be smaller than the current one.
    */
   TVM_DLL NDArray CreateView(
-      std::vector<int64_t> shape, DLDataType dtype);
+      std::vector<int64_t> shape, DLDataType dtype) const;
   /*!
    * \brief Create a reference view of NDArray that
    *  represents as DLManagedTensor.
@@ -312,7 +312,7 @@ inline size_t GetDataSize(const DLTensor& arr) {
 
   if (arr.dtype.bits < 8)
     size = size * arr.dtype.bits / 8;
-  else 
+  else
     size *= (arr.dtype.bits * arr.dtype.lanes + 7) / 8;
 
   return size;

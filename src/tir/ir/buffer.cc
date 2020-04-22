@@ -299,7 +299,13 @@ PrimExpr Buffer::vload(Array<PrimExpr> begin, DataType dtype) const {
         dtype.lanes() % n->dtype.lanes() == 0)
       << "Cannot load " << dtype
       << " from buffer of " << n->dtype;
-  if (dtype == DataType::Bool()) {
+
+  if (n->dtype == DataType::Int(4) || n->dtype == DataType::UInt(4)) {
+    PrimExpr new_index = tir::DivNode::make(BufferOffset(n, begin, n->dtype), 32 / n->dtype.bits());
+    return tir::LoadNode::make(
+            DataType::Int(32), n->data, new_index,
+            const_true());
+  } else if (dtype == DataType::Bool()) {
     return tir::CastNode::make(
         DataType::Bool(),
         tir::LoadNode::make(
@@ -316,11 +322,16 @@ Stmt Buffer::vstore(Array<PrimExpr> begin, PrimExpr value) const {
   // specially handle bool, stored asDataType::Int(8)
   const BufferNode* n = operator->();
   DataType dtype = value.dtype();
-  CHECK(dtype.element_of() == n->dtype.element_of() &&
-        dtype.lanes() % n->dtype.lanes() == 0)
-      << "Cannot load " << dtype
-      << " from buffer of " << n->dtype;
-  if (value.dtype() == DataType::Bool()) {
+  if (!(n->dtype == DataType::Int(4) || n->dtype == DataType::UInt(4)))
+    CHECK(dtype.element_of() == n->dtype.element_of() &&
+          dtype.lanes() % n->dtype.lanes() == 0)
+        << "Cannot load " << dtype
+        << " from buffer of " << n->dtype;
+
+  if (n->dtype == DataType::Int(4) || n->dtype == DataType::UInt(4)) {
+    PrimExpr new_index = tir::DivNode::make(BufferOffset(n, begin, n->dtype), 32 / n->dtype.bits());
+    return tir::StoreNode::make(n->data, value, new_index, const_true());
+  } if (value.dtype() == DataType::Bool()) {
     return tir::StoreNode::make(n->data,
                            tir::CastNode::make(DataType::Int(8), value),
                            BufferOffset(n, begin, DataType::Int(8)),
