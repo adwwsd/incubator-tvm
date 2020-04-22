@@ -166,7 +166,7 @@ struct NDArray::Internal {
   }
 };
 
-NDArray NDArray::CreateView(std::vector<int64_t> shape, DLDataType dtype) {
+NDArray NDArray::CreateView(std::vector<int64_t> shape, DLDataType dtype) const {
   CHECK(data_ != nullptr);
   CHECK(get_mutable()->dl_tensor.strides == nullptr)
       << "Can only create view for compact tensor";

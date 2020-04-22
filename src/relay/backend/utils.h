@@ -148,12 +148,26 @@ inline relay::Function BindParamsByName(
       LOG(FATAL) << "Multiple args in the function have name " << kv.first;
     }
 
-    const auto* ttype_node = arg->type_annotation.as<TensorTypeNode>();
-    if (ttype_node && ttype_node->dtype == DataType::Int(4)) {
-      continue;
-    }
+    const TensorTypeNode* ttype_node = arg->type_annotation.as<TensorTypeNode>();
 
-    bind_dict[arg] = Constant(kv.second);
+    if (ttype_node != NULL &&
+        ((ttype_node->dtype == DataType::Int(4)) ||
+        (ttype_node->dtype == DataType::UInt(4)))) {
+
+      DataType dtype = ttype_node->dtype;
+      auto shape = ttype_node->shape;
+
+      std::vector<int64_t> new_shape;
+
+      for (unsigned i = 0; i < shape.size(); i++) {
+        const IntImmNode* d = shape[i].as<IntImmNode>();
+        new_shape.push_back(d->value);
+      }
+      bind_dict[arg] = Constant(kv.second.CreateView(new_shape, dtype));
+
+    } else {
+      bind_dict[arg] = Constant(kv.second);
+    }
   }
   Expr bound_expr = relay::Bind(func, bind_dict);
   Function ret = Downcast<Function>(bound_expr);
