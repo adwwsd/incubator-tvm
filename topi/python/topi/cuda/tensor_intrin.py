@@ -102,7 +102,7 @@ def intrin_wmma_load_matrix(shape, scope, in_dtype):
         elif scope == "wmma.matrix_b":
             ib.emit(tir.call_intrin('handle', 'tvm_load_matrix_sync',
                                     BC.data, n, m, l, BC.elem_offset // (row * col),
-                                    BA.access_ptr('r'), col, 'col_major'))                                    
+                                    BA.access_ptr('r'), col, 'col_major'))
         return ib.get()
 
     return te.decl_tensor_intrin(C.op, intrin_func, binds={A: BA, C: BC})
@@ -143,12 +143,12 @@ def intrin_wmma_gemm(shape, in_dtype, out_dtype='int32'):
 
     return te.decl_tensor_intrin(C.op, intrin_func, binds={A: BA, B: BB, C: BC})
 
-def intrin_wmma_store_matrix(shape, dtype):
+def intrin_wmma_store_matrix(shape, dtype, scope):
     n, m, l = shape
     A = te.placeholder((n, m), name='A', dtype=dtype)
     BA = tir.decl_buffer(A.shape, A.dtype, scope='wmma.accumulator', data_alignment=32, offset_factor=n * m)
     C = te.compute((n, m), lambda i, j: A[i, j], name='C')
-    BC = tir.decl_buffer(C.shape, C.dtype, scope='global', data_alignment=32, offset_factor=n * m)
+    BC = tir.decl_buffer(C.shape, C.dtype, scope=scope, data_alignment=32, offset_factor=n * m)
 
     def intrin_func(ins, outs):
         ib = tir.ir_builder.create()
