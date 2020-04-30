@@ -137,6 +137,8 @@ def conv2d_nhwc_tensorcore_im2col(cfg, data, kernel, stride, padding, dilation, 
     out_height = (in_height - kernel_h + pad_top + pad_down) // stride_h + 1
     out_width = (in_width - kernel_w + pad_left + pad_right) // stride_w + 1
 
+    cfg.add_flop(2 * batch_size * out_height * out_width * out_channels * in_channels * kernel_h * kernel_w)
+
     # Validate the shape
     assert not data.dtype in ['int4', 'uint4'] or in_channels % ELE_PER_INT == 0
 
@@ -224,28 +226,39 @@ def _schedule_conv2d_nhwc_tensorcore_im2col(cfg, s, output):
     if isinstance(pad_data.op, te.tensor.ComputeOp) and "pad" in pad_data.op.tag:
         s[pad_data].compute_inline()
         data = pad_data.op.input_tensors[0]
+
+        if autotvm.GLOBAL_SCOPE.in_tuning:
+            # skip this part during tuning to make recrods accurate
+            # this part will be pre-computed during NNVM's pre-compute optimization pass
+            s[pad_data].pragma(s[pad_data].op.axis[0], "debug_skip_region")
     else:
         data = pad_data
+
 
     pre_computed = 0
     if isinstance(kernel_im2col.op, te.tensor.ComputeOp) and 'kernel_im2col' in kernel_im2col.op.tag:
         kernel = kernel_im2col.op.input_tensors[0]
-        _, KH, KW, CI = get_const_tuple(kernel.shape)
     else:
         pre_computed = 1
         kernel = kernel_im2col
-        _, KH, KW, CI_chunk, _, ic_block_factor = get_const_tuple(kernel.shape)
-        CI = CI_chunk * ic_block_factor
 
-    N, OH, OW, CO = get_const_tuple(output.shape)
+    dtype = data_im2col.dtype
+    if dtype == 'int8':
+        shape_mnk = (16, 16, 16)
+    elif dtype == 'int4':
+        shape_mnk = (8, 8, 32)
 
-    cfg.add_flop(2 * N * OH * OW * CO * CI * KH * KW)
-
-    cfg.define_knob("block_row_warps", [1, 2, 4])
-    cfg.define_knob("block_col_warps", [1, 2, 4])
-    cfg.define_knob("warp_row_tiles", [1, 2, 4])
-    cfg.define_knob("warp_col_tiles", [1, 2, 4])
+    cfg.define_knob("block_row_warps", [1, 2, 4, 8])
+    cfg.define_knob("block_col_warps", [1, 2, 4, 8])
+    cfg.define_knob("warp_row_tiles", [1, 2, 4, 8])
+    cfg.define_knob("warp_col_tiles", [1, 2, 4, 8])
     cfg.define_knob("chunk", [1, 2, 4, 8, 16])
+    if dtype == "int8":
+        cfg.define_knob("vector_width", [16])
+    else:
+        cfg.define_knob("vector_width", [4])
+
+    cfg.define_knob("fuse_im2col", [0, 1])
 
     # fallback support
     target = tvm.target.Target.current()
@@ -259,6 +272,7 @@ def _schedule_conv2d_nhwc_tensorcore_im2col(cfg, s, output):
     warp_row_tiles = cfg["warp_row_tiles"].val
     warp_col_tiles = cfg["warp_col_tiles"].val
     chunk = cfg["chunk"].val
+    vector_width = cfg["vector_width"].val
 
     warp_size = 32
 
@@ -277,8 +291,10 @@ def _schedule_conv2d_nhwc_tensorcore_im2col(cfg, s, output):
 
     # Schedule im2col
     s[data_im2col].compute_inline()
-    # Schedule pack
-    schedule_injective_from_existing(s, A)
+    if cfg["fuse_im2col"].val:
+        s[A].compute_inline()
+    else:
+        schedule_injective_from_existing(s, A)
 
     if not pre_computed:
         s[kernel_im2col].compute_inline()
@@ -293,6 +309,8 @@ def _schedule_conv2d_nhwc_tensorcore_im2col(cfg, s, output):
     if output.op not in s.outputs:
         s[output].compute_inline()
         output = s.outputs[0].output(0)
+
+    # Schedule output
     schedule_injective_from_existing(s, output)
 
     AS = s.cache_read(A, 'shared', [C])
@@ -330,9 +348,11 @@ def _schedule_conv2d_nhwc_tensorcore_im2col(cfg, s, output):
     ty, yo = s[AS].split(yo, nparts=block_col_warps)
     t = s[AS].fuse(xi, yi)
     to, ti = s[AS].split(t, nparts=warp_size)
+    ti, vec = s[AS].split(ti, factor=vector_width)
     s[AS].bind(tx, thread_y)
     s[AS].bind(ty, thread_z)
     s[AS].bind(to, thread_x)
+    s[AS].vectorize(vec)
 
     # Schedule B shared memory
     s[BS].compute_at(s[CF], ko)
@@ -341,19 +361,18 @@ def _schedule_conv2d_nhwc_tensorcore_im2col(cfg, s, output):
     ty, yo = s[BS].split(yo, nparts=block_col_warps)
     t = s[BS].fuse(xi, yi)
     to, ti = s[BS].split(t, nparts=warp_size)
+    ti, vec = s[BS].split(ti, factor=vector_width)
     s[BS].bind(tx, thread_y)
     s[BS].bind(ty, thread_z)
     s[BS].bind(to, thread_x)
+    s[BS].vectorize(vec)
 
-    dtype = data_im2col.dtype
-    if dtype == 'int8':
-        shape_mnk = (16, 16, 16)
-    elif dtype == 'int4':
-        shape_mnk = (8, 8, 32)
-
+    # Tensorcore tensorization
     s[AF].tensorize(AF.op.axis[-2], intrin_wmma_load_matrix(shape_mnk, 'wmma.matrix_a', dtype))
     s[BF].tensorize(BF.op.axis[-2], intrin_wmma_load_matrix(shape_mnk, 'wmma.matrix_b', dtype))
-    s[C].tensorize(kernel_i, intrin_wmma_store_matrix(shape_mnk, 'int32'))
+    s[C].tensorize(kernel_i, intrin_wmma_store_matrix(shape_mnk, 'int32', 'global'))
     s[CF].tensorize(_i, intrin_wmma_gemm(shape_mnk, dtype))
+
+    # print(tvm.lower(s, [data, kernel, output], simple_mode=True))
 
     return s

@@ -273,12 +273,21 @@ def intrin_wmma_gemm(AL_gemm, WL_gemm, CL_compute, strides_A,
 
     return te.decl_tensor_intrin(C.op, intrin_func, binds={A: BA, B: BB, C: BC})
 
+<<<<<<< HEAD
 # def intrin_wmma_store_matrix(shape, dtype):
 #     n, m, l = shape
 #     A = te.placeholder((n, m), name='A', dtype=dtype)
 #     BA = tir.decl_buffer(A.shape, A.dtype, scope='wmma.accumulator', data_alignment=32, offset_factor=n * m)
 #     C = te.compute((n, m), lambda i, j: A[i, j], name='C')
 #     BC = tir.decl_buffer(C.shape, C.dtype, scope='global', data_alignment=32, offset_factor=n * m)
+=======
+def intrin_wmma_store_matrix(shape, dtype, scope):
+    n, m, l = shape
+    A = te.placeholder((n, m), name='A', dtype=dtype)
+    BA = tir.decl_buffer(A.shape, A.dtype, scope='wmma.accumulator', data_alignment=32, offset_factor=n * m)
+    C = te.compute((n, m), lambda i, j: A[i, j], name='C')
+    BC = tir.decl_buffer(C.shape, C.dtype, scope=scope, data_alignment=32, offset_factor=n * m)
+>>>>>>> Add vectorization to schedule
 
 #     def intrin_func(ins, outs):
 #         ib = tir.ir_builder.create()
