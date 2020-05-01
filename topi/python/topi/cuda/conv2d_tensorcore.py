@@ -40,8 +40,8 @@ import tvm
 from tvm import te
 from tvm import tir
 from tvm import autotvm
-
-from .tensor_intrin import intrin_wmma_load_matrix, intrin_wmma_gemm, intrin_wmma_store_matrix
+import numpy as np
+from .tensor_intrin import intrin_wmma_load_matrix_A, intrin_wmma_load_matrix_W, intrin_wmma_gemm, intrin_wmma_store_matrix
 from .injective import schedule_injective_from_existing
 from ..nn.pad import pad
 from ..nn.util import get_pad_tuple
@@ -234,7 +234,6 @@ def _schedule_conv2d_nhwc_tensorcore_im2col(cfg, s, output):
     else:
         data = pad_data
 
-
     pre_computed = 0
     if isinstance(kernel_im2col.op, te.tensor.ComputeOp) and 'kernel_im2col' in kernel_im2col.op.tag:
         kernel = kernel_im2col.op.input_tensors[0]
@@ -242,18 +241,18 @@ def _schedule_conv2d_nhwc_tensorcore_im2col(cfg, s, output):
         pre_computed = 1
         kernel = kernel_im2col
 
-    dtype = data_im2col.dtype
-    if dtype == 'int8':
-        shape_mnk = (16, 16, 16)
-    elif dtype == 'int4':
-        shape_mnk = (8, 8, 32)
+    in_dtype = data_im2col.dtype
+    if in_dtype == 'int8':
+        wmma_m, wmma_n, wmma_k = (16, 16, 16)
+    elif in_dtype == 'int4':
+        wmma_m, wmma_n, wmma_k = (8, 8, 32)
 
     cfg.define_knob("block_row_warps", [1, 2, 4, 8])
     cfg.define_knob("block_col_warps", [1, 2, 4, 8])
     cfg.define_knob("warp_row_tiles", [1, 2, 4, 8])
     cfg.define_knob("warp_col_tiles", [1, 2, 4, 8])
     cfg.define_knob("chunk", [1, 2, 4, 8, 16])
-    if dtype == "int8":
+    if in_dtype == "int8":
         cfg.define_knob("vector_width", [16])
     else:
         cfg.define_knob("vector_width", [4])
@@ -368,10 +367,47 @@ def _schedule_conv2d_nhwc_tensorcore_im2col(cfg, s, output):
     s[BS].vectorize(vec)
 
     # Tensorcore tensorization
-    s[AF].tensorize(AF.op.axis[-2], intrin_wmma_load_matrix(shape_mnk, 'wmma.matrix_a', dtype))
-    s[BF].tensorize(BF.op.axis[-2], intrin_wmma_load_matrix(shape_mnk, 'wmma.matrix_b', dtype))
-    s[C].tensorize(kernel_i, intrin_wmma_store_matrix(shape_mnk, 'int32', 'global'))
-    s[CF].tensorize(_i, intrin_wmma_gemm(shape_mnk, dtype))
+    shape = (wmma_m, wmma_n, wmma_k)
+    AS_shape = (wmma_m, wmma_k)
+    AF_shape = (wmma_m, wmma_k)
+    WS_shape = (wmma_n, wmma_k)
+    BF_shape = (wmma_n, wmma_k)
+    CL_shape = (wmma_m, wmma_n)
+    CS_shape = (wmma_m, wmma_n)
+
+    # Define the intrin strides
+    def get_strides(extents):
+        return [np.prod(extents[i:]).tolist() for i in range(len(extents))]
+
+    AF_strides = get_strides([wmma_k, 1])
+    AS_strides = get_strides([wmma_k, 1])
+    BF_strides = get_strides([wmma_k, 1])
+    BS_strides = get_strides([wmma_k, 1])
+    CF_strides = get_strides([wmma_n, 1])
+    CS_strides = get_strides([wmma_n, 1])
+
+    AF_gemm = te.placeholder(AF_shape, name='A', dtype=in_dtype)
+    BF_gemm = te.placeholder(BF_shape, name='B', dtype=in_dtype)
+    k_gemm = te.reduce_axis((0, wmma_k), name="k")
+    CF_compute = te.compute((wmma_m, wmma_n),
+                            lambda ii, jj:
+                            te.sum((AF_gemm[ii, k_gemm] * BF_gemm[jj, k_gemm]).astype(output.dtype), axis=k_gemm),
+                            name='C')
+
+    # s[AF].tensorize(AF.op.axis[-2], intrin_wmma_load_matrix(shape_mnk, 'wmma.matrix_a', dtype))
+    s[AF].tensorize(AF.op.axis[-2], intrin_wmma_load_matrix_A(AF_strides, AS_strides, shape,
+                                                                "row_major", AS_shape, AF_shape, in_dtype))
+    # s[BF].tensorize(BF.op.axis[-2], intrin_wmma_load_matrix(shape_mnk, 'wmma.matrix_b', dtype))
+    s[BF].tensorize(BF.op.axis[-2], intrin_wmma_load_matrix_W(BF_strides, BS_strides, shape,
+                                                            "col_major", BF_shape, BF_shape, in_dtype))
+
+    # s[C].tensorize(kernel_i, intrin_wmma_store_matrix(shape_mnk, 'int32', 'global'))
+    s[C].tensorize(kernel_i, intrin_wmma_store_matrix(CS_strides, CF_strides,
+                                                        shape, output.dtype, CL_shape, CS_shape, 'global'))
+
+    # s[CF].tensorize(_i, intrin_wmma_gemm())
+    s[CF].tensorize(_i, intrin_wmma_gemm(AF_gemm, BF_gemm, CF_compute, AF_strides,
+                                             BF_strides, CF_strides, shape))
 
     # print(tvm.lower(s, [data, kernel, output], simple_mode=True))
 
