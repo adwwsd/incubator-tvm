@@ -169,7 +169,7 @@ def conv2d_strategy_cuda(attrs, inputs, out_type, target):
                 if nvcc.have_tensorcore(tvm.gpu(0).compute_version):
 
                     if data.dtype in ['int8', 'uint8', 'int4', 'uint4'] and kernel.dtype in ['int8', 'uint8', 'int4', 'uint4'] and \
-                        data.dtype == kernel.dtype and kernel_layout == "OHWI":
+                        data.dtype == kernel.dtype and kernel_layout in ["OHWI", "OHWI16o16i", "OHWI8o32i"] :
                         strategy.add_implementation(
                             wrap_compute_conv2d(topi.cuda.conv2d_nhwc_tensorcore_im2col, need_data_layout=True),
                             wrap_topi_schedule(topi.cuda.schedule_conv2d_nhwc_tensorcore_im2col),
