@@ -125,14 +125,6 @@ def conv2d_nhwc_tensorcore_im2col(cfg, data, kernel, stride, padding, dilation, 
     pad_after = [0, pad_down, pad_right, 0]
     pad_data = pad(data, pad_before, pad_after, name="pad_data")
 
-    # pad_data = te.compute(
-    #     (batch_size, in_height + pad_top + pad_down, in_width + pad_left + pad_right, in_channels),
-    #     lambda n, h, w, i: tvm.tir.if_then_else(
-    #         tvm.tir.all(h >= pad_down, h - pad_top < in_height,
-    #                 w >= pad_left, w - pad_right < in_width),
-    #         data[n, h - pad_down, w - pad_left, i], tvm.tir.const(0, data.dtype)),
-    #     name='pad', tag='pad_data')
-
     # compute the output shape
     out_height = (in_height - kernel_h + pad_top + pad_down) // stride_h + 1
     out_width = (in_width - kernel_w + pad_left + pad_right) // stride_w + 1
@@ -252,11 +244,10 @@ def _schedule_conv2d_nhwc_tensorcore_im2col(cfg, s, output):
     cfg.define_knob("warp_row_tiles", [1, 2, 4, 8])
     cfg.define_knob("warp_col_tiles", [1, 2, 4, 8])
     cfg.define_knob("chunk", [1, 2, 4, 8, 16])
-    if in_dtype == "int8":
-        cfg.define_knob("vector_width", [16])
-    else:
-        cfg.define_knob("vector_width", [4])
-
+    if in_dtype in ["int8", "uint8"]:
+        cfg.define_knob("vector_width", [1, 2, 4, 8, 16])
+    elif in_dtype in ["int4", "uint4"]:
+        cfg.define_knob("vector_width", [1, 2, 4])
     cfg.define_knob("fuse_im2col", [0, 1])
 
     # fallback support
@@ -274,12 +265,6 @@ def _schedule_conv2d_nhwc_tensorcore_im2col(cfg, s, output):
     vector_width = cfg["vector_width"].val
 
     warp_size = 32
-
-    # block_row_warps = 2
-    # block_col_warps = 4
-    # warp_row_tiles = 2
-    # warp_col_tiles = 1
-    # chunk = 4
 
     block_x = te.thread_axis('blockIdx.x')
     block_y = te.thread_axis('blockIdx.y')
@@ -370,7 +355,7 @@ def _schedule_conv2d_nhwc_tensorcore_im2col(cfg, s, output):
     shape = (wmma_m, wmma_n, wmma_k)
     AS_shape = (wmma_m, wmma_k)
     AF_shape = (wmma_m, wmma_k)
-    WS_shape = (wmma_n, wmma_k)
+    BS_shape = (wmma_n, wmma_k)
     BF_shape = (wmma_n, wmma_k)
     CL_shape = (wmma_m, wmma_n)
     CS_shape = (wmma_m, wmma_n)
@@ -394,21 +379,13 @@ def _schedule_conv2d_nhwc_tensorcore_im2col(cfg, s, output):
                             te.sum((AF_gemm[ii, k_gemm] * BF_gemm[jj, k_gemm]).astype(output.dtype), axis=k_gemm),
                             name='C')
 
-    # s[AF].tensorize(AF.op.axis[-2], intrin_wmma_load_matrix(shape_mnk, 'wmma.matrix_a', dtype))
     s[AF].tensorize(AF.op.axis[-2], intrin_wmma_load_matrix_A(AF_strides, AS_strides, shape,
                                                                 "row_major", AS_shape, AF_shape, in_dtype))
-    # s[BF].tensorize(BF.op.axis[-2], intrin_wmma_load_matrix(shape_mnk, 'wmma.matrix_b', dtype))
     s[BF].tensorize(BF.op.axis[-2], intrin_wmma_load_matrix_W(BF_strides, BS_strides, shape,
-                                                            "col_major", BF_shape, BF_shape, in_dtype))
-
-    # s[C].tensorize(kernel_i, intrin_wmma_store_matrix(shape_mnk, 'int32', 'global'))
+                                                            "col_major", BS_shape, BF_shape, in_dtype))
     s[C].tensorize(kernel_i, intrin_wmma_store_matrix(CS_strides, CF_strides,
                                                         shape, output.dtype, CL_shape, CS_shape, 'global'))
-
-    # s[CF].tensorize(_i, intrin_wmma_gemm())
     s[CF].tensorize(_i, intrin_wmma_gemm(AF_gemm, BF_gemm, CF_compute, AF_strides,
                                              BF_strides, CF_strides, shape))
-
-    # print(tvm.lower(s, [data, kernel, output], simple_mode=True))
 
     return s
