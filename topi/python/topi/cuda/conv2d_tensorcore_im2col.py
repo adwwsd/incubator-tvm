@@ -59,7 +59,7 @@ def conv2d_nhwc_tensorcore_im2col(cfg, data, kernel, stride, padding, dilation, 
         4-D with shape [batch, in_height, in_width, in_channel]
 
     kernel : tvm..te.Tensor
-        4-D with shape [num_filter, filter_height, filter_width, in_channel]
+        4-D with shape [filter_height, filter_width, num_filter, in_channel]
 
     stride : int or a list/tuple of two ints
         stride size, or [stride_height, stride_width]
@@ -100,10 +100,10 @@ def conv2d_nhwc_tensorcore_im2col(cfg, data, kernel, stride, padding, dilation, 
 
     pre_computed = len(kernel.shape) == 6
     if pre_computed:
-        oc_chunk, kernel_h, kernel_w, ic_chunk, oc_block_factor, ic_block_factor = get_const_tuple(kernel.shape)
+        kernel_h, kernel_w, oc_chunk, ic_chunk, oc_block_factor, ic_block_factor = get_const_tuple(kernel.shape)
         out_channels = oc_chunk * oc_block_factor
     else:
-        out_channels, kernel_h, kernel_w, _ = get_const_tuple(kernel.shape)
+        kernel_h, kernel_w, out_channels, _ = get_const_tuple(kernel.shape)
 
     if isinstance(stride, int):
         stride_h = stride_w = stride
@@ -159,12 +159,12 @@ def conv2d_nhwc_tensorcore_im2col(cfg, data, kernel, stride, padding, dilation, 
     if pre_computed:
         B = te.compute((nn, kk, kernel_size_n, kernel_size_k),
                         lambda i, j, ii, jj: \
-                        kernel[i, j // (ic_chunk * kernel_w), (j // ic_chunk) % kernel_w, j % ic_chunk, ii, jj],
+                        kernel[j // (ic_chunk * kernel_w), (j // ic_chunk) % kernel_w, i, j % ic_chunk, ii, jj],
                         name='kernel_im2col_pack')
     else:
         kernel_im2col = te.compute((im2col_N, im2col_K), lambda i, j: \
                                 te.if_then_else(te.all(i < out_channels, j < in_channels * kernel_h * kernel_w),
-                                kernel[i, j // (in_channels * kernel_w), (j // in_channels) % kernel_w, j % in_channels],
+                                kernel[j // (in_channels * kernel_w), (j // in_channels) % kernel_w, i, j % in_channels],
                                 tir.const(0, data.dtype)),
                                 name='kernel_im2col', tag='kernel_im2col')
         B = te.compute((nn, kk, kernel_size_n, kernel_size_k),

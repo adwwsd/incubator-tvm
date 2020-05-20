@@ -132,7 +132,7 @@ def conv2d_strategy_cuda(attrs, inputs, out_type, target):
                 name="conv2d_hwcn.cuda")
 
         elif layout == "NHWC":
-            assert kernel_layout in ["HWIO", "OHWI", "OHWI16o16i", "OHWI8o32i"], "kernel %s is not supported" % kernel_layout
+            # assert kernel_layout in ["HWIO", "OHWI", "OHWI16o16i", "OHWI8o32i"], "kernel %s is not supported" % kernel_layout
 
             strategy.add_implementation(
                 wrap_compute_conv2d(topi.cuda.conv2d_nhwc),
