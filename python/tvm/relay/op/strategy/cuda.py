@@ -132,26 +132,43 @@ def conv2d_strategy_cuda(attrs, inputs, out_type, target):
                 name="conv2d_hwcn.cuda")
 
         elif layout == "NHWC":
-            assert kernel_layout in ["HWIO", "OHWI", "OHWI16o16i", "OHWI8o32i"], "kernel %s is not supported" % kernel_layout
+            # assert kernel_layout in ["HWIO", "OHWI", "OHWI16o16i", "OHWI8o32i"], "kernel %s is not supported" % kernel_layout
 
-            if data.dtype not in ['int4', 'uint4'] and len(kernel.shape) == 4:
-                strategy.add_implementation(
-                    wrap_compute_conv2d(topi.cuda.conv2d_nhwc),
-                    wrap_topi_schedule(topi.cuda.schedule_conv2d_nhwc),
-                    name="conv2d_nhwc.cuda")
+            # if data.dtype not in ['int4', 'uint4'] and len(kernel.shape) == 4:
+            #     strategy.add_implementation(
+            #         wrap_compute_conv2d(topi.cuda.conv2d_nhwc),
+            #         wrap_topi_schedule(topi.cuda.schedule_conv2d_nhwc),
+            #         name="conv2d_nhwc.cuda")
 
-            N, _, _, _ = get_const_tuple(data.shape)
+            N, _, _, in_channels = get_const_tuple(data.shape)
 
             if target.target_name == "cuda":
                 if nvcc.have_tensorcore(tvm.gpu(0).compute_version):
 
-                    if data.dtype in ['int8', 'uint8', 'int4', 'uint4'] and kernel.dtype in ['int8', 'uint8', 'int4', 'uint4'] and \
-                        data.dtype == kernel.dtype and kernel_layout in ["OHWI", "OHWI16o16i", "OHWI8o32i"] :
-                        strategy.add_implementation(
-                            wrap_compute_conv2d(topi.cuda.conv2d_nhwc_tensorcore_im2col, need_data_layout=True),
-                            wrap_topi_schedule(topi.cuda.schedule_conv2d_nhwc_tensorcore_im2col),
-                            name="conv2d_nhwc_tensorcore_im2col",
-                            plevel=20)
+                    if data.dtype in ['int8', 'uint8', 'int4', 'uint4'] and kernel.dtype in ['int8', 'uint8', 'int4', 'uint4']:
+
+                        assert data.dtype == kernel.dtype and kernel_layout in ["HWOI", "HWOI16o16i", "HWOI8o32i", "HWOI32o16i"]
+
+                        pre_computed = len(kernel.shape) == 6
+                        if pre_computed:
+                            _, _, oc_chunk, _, oc_block_factor, _ = get_const_tuple(kernel.shape)
+                            out_channels = oc_chunk * oc_block_factor
+                        else:
+                            _, _, out_channels, _ = get_const_tuple(kernel.shape)
+
+                        if topi.cuda.is_shape_tensorcore_direct_qualified(batch=N, in_channels=in_channels, num_filter=out_channels, in_dtype=data.dtype):
+                            assert data.dtype == kernel.dtype
+                            strategy.add_implementation(
+                                wrap_compute_conv2d(topi.cuda.conv2d_nhwc_tensorcore_direct),
+                                wrap_topi_schedule(topi.cuda.schedule_conv2d_nhwc_tensorcore_direct),
+                                name="conv2d_nhwc_tensorcore_direct.cuda",
+                                plevel=20)
+                        else:
+                            strategy.add_implementation(
+                                wrap_compute_conv2d(topi.cuda.conv2d_nhwc_tensorcore_im2col, need_data_layout=True),
+                                wrap_topi_schedule(topi.cuda.schedule_conv2d_nhwc_tensorcore_im2col),
+                                name="conv2d_nhwc_tensorcore_im2col",
+                                plevel=20)
                     else:
                         _, _, CI, CO = get_const_tuple(kernel.shape)
                         if (N % 16 == 0 and CI % 16 == 0 and CO % 16 == 0) or \

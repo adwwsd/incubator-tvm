@@ -294,10 +294,10 @@ inline Tensor cast(const Tensor& x,
             dst_idx[j].push_back(indices[i]);
         }
 
-        PrimExpr alinged_index = indices[ndim-1] & PrimExpr(-8);
+        PrimExpr aligned_index = indexdiv(indices[ndim-1], PrimExpr(8)) * PrimExpr(8);
 
         for (int j = 0; j < 8; ++j)
-            dst_idx[j].push_back(alinged_index + j);
+            dst_idx[j].push_back(aligned_index + j);
 
         PrimExpr pack = PrimExpr(0);
         PrimExpr mask = PrimExpr(0xf);
