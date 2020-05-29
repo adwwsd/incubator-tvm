@@ -136,7 +136,7 @@ class NDArray(NDArrayBase):
             dtype = str(t)
 
         if source_array.shape != shape and \
-            not (dtype == 'int4' and source_array.dtype == 'int32' and source_array.shape[-1] * 8 == shape[-1]):
+            not (dtype in ['int4', 'uint4'] and source_array.dtype == 'int32' and source_array.shape[-1] * 8 == shape[-1]):
             raise ValueError("array shape do not match the shape of NDArray {0} vs {1}".format(
                 source_array.shape, shape))
 
