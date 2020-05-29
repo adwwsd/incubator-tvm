@@ -304,7 +304,7 @@ inline Tensor cast(const Tensor& x,
         for (int j = 0; j < 8; ++j) {
           pack = pack | ((x(dst_idx[j]) & mask) << PrimExpr(((7 - j) * 4)));
         }
-        return tvm::cast(DataType::Int(4), pack);
+        return tvm::cast(type, pack);
       }, name, tag);
   }
 

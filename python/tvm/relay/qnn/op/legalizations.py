@@ -213,6 +213,10 @@ def helper_change_dtypes_to_be_same(attrs, inputs, types, relay_op):
     if data_dtype == kernel_dtype:
         return None
 
+    if (data_dtype == 'uint4' and kernel_dtype == 'int4') or \
+       (data_dtype == 'uint8' and kernel_dtype == 'int8'):
+        return None
+
     # Collect the input exprs.
     data, kernel, input_zero_point, kernel_zero_point, input_scale, kernel_scale = inputs
 

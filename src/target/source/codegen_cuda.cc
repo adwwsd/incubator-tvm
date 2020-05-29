@@ -53,6 +53,12 @@ std::string CodeGenCUDA::Finish() {
   decl_stream << "__device__ inline long max(int a, long b)\n"
             << "{\n  return max((long)a, b);\n}\n";
 
+  decl_stream << "__device__ inline long max(long a, int b)\n"
+            << "{\n  return max(b, a);\n}\n";
+
+  decl_stream << "__device__ inline long min(long a, int b)\n"
+            << "{\n  return min(a, (long)b);\n}\n";
+
   if (enable_fp16_) {
     decl_stream << "#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 530)\n";
     decl_stream << "#include <cuda_fp16.h>\n";
@@ -79,6 +85,21 @@ std::string CodeGenCUDA::Finish() {
 
   if (need_mma_h_) {
     decl_stream << "#include <mma.h>\n";
+
+    decl_stream << "__device__ void nvcuda::wmma::mma_sync(nvcuda::wmma::fragment<nvcuda::wmma::accumulator, 8, 8, 32, int, void> &d,\n";
+    decl_stream << "  nvcuda::wmma::fragment<nvcuda::wmma::matrix_a, 8, 8, 32, nvcuda::wmma::experimental::precision::u4, nvcuda::wmma::row_major> &a,\n";
+    decl_stream << "  nvcuda::wmma::fragment<nvcuda::wmma::matrix_b, 8, 8, 32, nvcuda::wmma::experimental::precision::s4, nvcuda::wmma::col_major> &b,\n";
+    decl_stream << "  nvcuda::wmma::fragment<nvcuda::wmma::accumulator, 8, 8, 32, int, void> &c) \n";
+
+    decl_stream << "{\n  unsigned const & A = reinterpret_cast<unsigned const &>(a);\n";
+    decl_stream << "  unsigned const & B = reinterpret_cast<unsigned const &>(b);\n";
+
+    decl_stream << "  int const *C = reinterpret_cast<int const *>(&c);\n";
+    decl_stream << "  int *D = reinterpret_cast<int *>(&d);\n";
+    decl_stream << "  asm volatile(\"mma.sync.aligned.m8n8k32.row.col.s32.u4.s4.s32 {%0,%1}, {%2}, {%3}, {%4,%5};\\n\"\n";
+    decl_stream << "        : \"=r\"(D[0]), \"=r\"(D[1])\n";
+    decl_stream << "        : \"r\"(A), \"r\"(B), \"r\"(C[0]), \"r\"(C[1]));  \n}\n";
+    decl_stream << "\n";
   }
 
   return CodeGenC::Finish();

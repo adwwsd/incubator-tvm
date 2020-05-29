@@ -147,7 +147,7 @@ def conv2d_strategy_cuda(attrs, inputs, out_type, target):
 
                     if data.dtype in ['int8', 'uint8', 'int4', 'uint4'] and kernel.dtype in ['int8', 'uint8', 'int4', 'uint4']:
 
-                        assert data.dtype == kernel.dtype and kernel_layout in ["HWOI", "HWOI16o16i", "HWOI8o32i", "HWOI32o16i"]
+                        assert kernel_layout in ["HWOI", "HWOI16o16i", "HWOI8o32i", "HWOI32o16i"]
 
                         pre_computed = len(kernel.shape) == 6
                         if pre_computed:
@@ -157,7 +157,6 @@ def conv2d_strategy_cuda(attrs, inputs, out_type, target):
                             _, _, out_channels, _ = get_const_tuple(kernel.shape)
 
                         if topi.cuda.is_shape_tensorcore_direct_qualified(batch=N, in_channels=in_channels, num_filter=out_channels, in_dtype=data.dtype):
-                            assert data.dtype == kernel.dtype
                             strategy.add_implementation(
                                 wrap_compute_conv2d(topi.cuda.conv2d_nhwc_tensorcore_direct),
                                 wrap_topi_schedule(topi.cuda.schedule_conv2d_nhwc_tensorcore_direct),
