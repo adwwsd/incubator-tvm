@@ -114,6 +114,12 @@ WorkloadType GetWorkload(const Array<tvm::relay::Type>& arg_types, const Conv2DA
   } else if (param->data_layout == "NHWC") {
     batch_size = get_const_int(in_shape[0]);
     in_channels = get_const_int(in_shape[3]);
+  } else if (param->data_layout == "HWCN") {
+    batch_size = get_const_int(in_shape[3]);
+    in_channels = get_const_int(in_shape[2]);
+  }  else if (param->data_layout == "HWNC") {
+    batch_size = get_const_int(in_shape[2]);
+    in_channels = get_const_int(in_shape[3]);
   } else {
     LOG(FATAL) << "qnn.conv2d does not support " << param->data_layout << " layout";
   }
@@ -223,6 +229,10 @@ Expr Conv2DPadInput(const Expr& data, const Expr& input_zero_point, const Conv2D
       pad_width = {pad_n, pad_c, pad_h, pad_w};
     } else if (param->data_layout == "NHWC") {
       pad_width = {pad_n, pad_h, pad_w, pad_c};
+    } else if (param->data_layout == "HWCN") {
+      pad_width = {pad_h, pad_w, pad_c, pad_n};
+    } else if (param->data_layout == "HWNC") {
+      pad_width = {pad_h, pad_w, pad_n, pad_c};
     } else {
       LOG(FATAL) << "qnn.conv2d does not support " << param->data_layout << " layout";
     }
@@ -281,6 +291,10 @@ Expr DepthwiseConv2DSecondTerm(const Expr& padded_data, const Expr& kernel_zero_
     axis_t2 = 1;
   } else if (param->data_layout == "NHWC") {
     axis_t2 = 3;
+  } else if (param->data_layout == "HWCN") {
+    axis_t2 = 2;
+  } else if (param->data_layout == "HWNC") {
+    axis_t2 = 3;
   } else {
     LOG(FATAL) << "qnn.conv2d does not support " << param->data_layout << " layout";
   }
@@ -327,6 +341,10 @@ Expr DepthwiseConv2DThirdTerm(const Expr& weight, const Expr& input_zero_point,
   if (param->data_layout == "NCHW") {
     newshape = {1, out_channels * channel_multiplier, 1, 1};
   } else if (param->data_layout == "NHWC") {
+    newshape = {1, 1, 1, out_channels * channel_multiplier};
+  } else if (param->data_layout == "HWCN") {
+    newshape = {1, 1, out_channels * channel_multiplier, 1};
+  } else if (param->data_layout == "HWNC") {
     newshape = {1, 1, 1, out_channels * channel_multiplier};
   } else {
     LOG(FATAL) << "qnn.conv2d does not support " << param->data_layout << " layout";
@@ -407,6 +425,10 @@ Expr Conv2DSecondTerm(const Expr& padded_data, const Expr& kernel_zero_point,
     axes_t2 = {1};
   } else if (param->data_layout == "NHWC") {
     axes_t2 = {3};
+  } else if (param->data_layout == "HWCN") {
+    axes_t2 = {2};
+  } else if (param->data_layout == "HWNC") {
+    axes_t2 = {3};
   } else {
     LOG(FATAL) << "qnn.conv2d does not support " << param->data_layout << " layout";
   }
@@ -470,6 +492,10 @@ Expr Conv2DThirdTerm(const Expr& weight, const Expr& input_zero_point, const Con
   if (param->data_layout == "NCHW") {
     newshape = {1, out_channels, 1, 1};
   } else if (param->data_layout == "NHWC") {
+    newshape = {1, 1, 1, out_channels};
+  } else if (param->data_layout == "HWCN") {
+    newshape = {1, 1, out_channels, 1};
+  } else if (param->data_layout == "HWNC") {
     newshape = {1, 1, 1, out_channels};
   } else {
     LOG(FATAL) << "qnn.conv2d does not support " << param->data_layout << " layout";
@@ -618,7 +644,7 @@ Expr QnnConv2DCanonicalize(const Attrs& attrs, const Array<Expr>& new_args,
   const auto* param = attrs.as<Conv2DAttrs>();
   CHECK(param != nullptr);
   // Assertion checks for exisiing support.
-  CHECK(param->data_layout == "NCHW" || param->data_layout == "NHWC")
+  CHECK(param->data_layout == "NCHW" || param->data_layout == "NHWC" || param->data_layout == "HWCN" || param->data_layout == "HWNC")
       << "qnn.conv2d supports only NCHW/NHWC input data layout.";
   CHECK(param->kernel_layout == "OIHW" || param->kernel_layout == "HWIO" ||
         param->kernel_layout == "HWOI" || param->kernel_layout == "OHWI")

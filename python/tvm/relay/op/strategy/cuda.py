@@ -125,12 +125,55 @@ def conv2d_strategy_cuda(attrs, inputs, out_type, target):
             #         name="conv2d_nchw_winograd.cuda",
             #         plevel=5)
         elif layout == "HWCN":
-            assert kernel_layout == "HWIO"
-            strategy.add_implementation(
-                wrap_compute_conv2d(topi.cuda.conv2d_hwcn),
-                wrap_topi_schedule(topi.cuda.schedule_conv2d_hwcn),
-                name="conv2d_hwcn.cuda")
-
+            assert kernel_layout in ["HWOI", "HWOI16o16i", "HWOI8o32i", "HWOI32o16i"]
+            # strategy.add_implementation(
+            #     wrap_compute_conv2d(topi.cuda.conv2d_hwcn),
+            #     wrap_topi_schedule(topi.cuda.schedule_conv2d_hwcn),
+            #     name="conv2d_hwcn.cuda")
+            _, _, in_channels, N = get_const_tuple(data.shape)
+            pre_computed = len(kernel.shape) == 6
+            if pre_computed:
+                _, _, oc_chunk, _, oc_block_factor, _ = get_const_tuple(kernel.shape)
+                out_channels = oc_chunk * oc_block_factor
+            else:
+                _, _, out_channels, _ = get_const_tuple(kernel.shape)
+            if topi.cuda.is_shape_tensorcore_direct_qualified(batch=N, in_channels=in_channels, num_filter=out_channels, in_dtype=data.dtype):
+                strategy.add_implementation(
+                    wrap_compute_conv2d(topi.cuda.conv2d_hwcn_tensorcore),
+                    wrap_topi_schedule(topi.cuda.schedule_conv2d_hwcn_tensorcore),
+                    name="conv2d_hwcn_tensorcore_direct.cuda",
+                    plevel=20)
+            else:
+                strategy.add_implementation(
+                    wrap_compute_conv2d(topi.cuda.conv2d_hwcn_tensorcore_im2col, need_data_layout=True),
+                    wrap_topi_schedule(topi.cuda.schedule_conv2d_hwcn_tensorcore_im2col),
+                    name="conv2d_hwcn_tensorcore_im2col",
+                    plevel=20)
+        elif layout == "HWNC":
+            assert kernel_layout in ["HWOI", "HWOI16o16i", "HWOI8o32i", "HWOI32o16i"]
+            # strategy.add_implementation(
+            #     wrap_compute_conv2d(topi.cuda.conv2d_hwnc),
+            #     wrap_topi_schedule(topi.cuda.schedule_conv2d_hwnc),
+            #     name="conv2d_hwnc.cuda")
+            _, _, N, in_channels = get_const_tuple(data.shape)
+            pre_computed = len(kernel.shape) == 6
+            if pre_computed:
+                _, _, oc_chunk, _, oc_block_factor, _ = get_const_tuple(kernel.shape)
+                out_channels = oc_chunk * oc_block_factor
+            else:
+                _, _, out_channels, _ = get_const_tuple(kernel.shape)
+            if topi.cuda.is_shape_tensorcore_direct_qualified(batch=N, in_channels=in_channels, num_filter=out_channels, in_dtype=data.dtype):
+                strategy.add_implementation(
+                    wrap_compute_conv2d(topi.cuda.conv2d_hwnc_tensorcore),
+                    wrap_topi_schedule(topi.cuda.schedule_conv2d_hwnc_tensorcore),
+                    name="conv2d_hwnc_tensorcore_direct.cuda",
+                    plevel=20)
+            else:
+                strategy.add_implementation(
+                    wrap_compute_conv2d(topi.cuda.conv2d_hwnc_tensorcore_im2col, need_data_layout=True),
+                    wrap_topi_schedule(topi.cuda.schedule_conv2d_hwnc_tensorcore_im2col),
+                    name="conv2d_hwnc_tensorcore_im2col",
+                    plevel=20)
         elif layout == "NHWC":
             # assert kernel_layout in ["HWIO", "OHWI", "OHWI16o16i", "OHWI8o32i"], "kernel %s is not supported" % kernel_layout
 
