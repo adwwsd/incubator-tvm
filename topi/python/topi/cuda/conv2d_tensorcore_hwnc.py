@@ -276,6 +276,8 @@ def schedule_hwnc_tensorcore_cuda(cfg, s, Conv):
     else:
         hc, wc, nc, oc, nnc, ooc = output.op.axis
 
+    kernel_scope, hc = s[output].split(hc, nparts=1)
+
     block_k = s[output].fuse(hc, wc)
     block_k, sub_block_k = s[output].split(block_k, factor=split_block_k)
     nc, nci = s[output].split(nc, factor=warp_row_tiles)
@@ -309,12 +311,43 @@ def schedule_hwnc_tensorcore_cuda(cfg, s, Conv):
     ko, ki = s[ConvF].split(ic, factor=chunk)
     s[ConvF].reorder(ko, kh, ki, kw, n, o, nnf, oof, ii)
 
+    cfg.define_reorder("reorder_inner", [ko, kh], policy="all")
+    # cfg['reorder_inner'] = autotvm.task.space.ReorderEntity([0, 1, 2])
+    cfg["reorder_inner"].apply(s, ConvF, [ko, kh])
+    cfg["reorder_inner"].apply(s, ConvF, [ki, kw])
+
+    # cfg.define_knob("compute_at_AF", [0, 1])
+    # cfg.define_knob("compute_at_WF", [0, 1])
+    cfg.define_knob("compute_at_AS", [0, 1, 2, 3])
+    cfg.define_knob("compute_at_WS", [0, 1, 2, 3])
+    # compute_at_AF = cfg["compute_at_AF"].val
+    # compute_at_WF = cfg["compute_at_WF"].val
+    compute_at_AS = cfg["compute_at_AS"].val
+    compute_at_WS = cfg["compute_at_WS"].val
+
     # Move intermediate computation into each output compute tile
+    # if compute_at_AF:
+    #     s[AF].compute_at(s[ConvF], kw)
+    # else:
+    #     s[AF].compute_at(s[ConvF], ki)
+    # if compute_at_WF:
+    #     s[WF].compute_at(s[ConvF], kw)
+    # else:
+    #     s[WF].compute_at(s[ConvF], ki)
+
     s[AF].compute_at(s[ConvF], kw)
     s[WF].compute_at(s[ConvF], kw)
 
     # Schedule for A's share memory
-    s[AS].compute_at(s[ConvF], kh)
+    if compute_at_AS == 0:
+        s[AS].compute_at(s[ConvF], ki)
+    elif compute_at_AS == 1:
+        s[AS].compute_at(s[ConvF], kw)
+    elif compute_at_AS == 2:
+        s[AS].compute_at(s[ConvF], ko)
+    else:
+        s[AS].compute_at(s[ConvF], kh)
+    # s[AS].compute_at(s[ConvF], kh)
     h, w, n, i, nn, ii = AS.op.axis
     tx, xo = s[AS].split(n, nparts=block_row_warps)
     ty, yo = s[AS].split(xo, nparts=block_col_warps)
@@ -327,6 +360,14 @@ def schedule_hwnc_tensorcore_cuda(cfg, s, Conv):
     s[AS].vectorize(_t)
 
     # Schedule for W's share memory
+    if compute_at_WS == 0:
+        s[WS].compute_at(s[ConvF], ki)
+    elif compute_at_WS == 1:
+        s[WS].compute_at(s[ConvF], kw)
+    elif compute_at_WS == 2:
+        s[WS].compute_at(s[ConvF], ko)
+    else:
+        s[WS].compute_at(s[ConvF], kh)
     s[WS].compute_at(s[ConvF], kw)
     kh, kw, ic, o, ii, oo = WS.op.axis
     tx, xo = s[WS].split(o, nparts=block_row_warps)
@@ -338,6 +379,26 @@ def schedule_hwnc_tensorcore_cuda(cfg, s, Conv):
     s[WS].bind(ty, thread_z)
     s[WS].bind(to, thread_x)
     s[WS].vectorize(ti)
+
+    # double buffer
+    cfg.define_knob('AS_double_buffer', [0, 1])
+    cfg.define_knob('WS_double_buffer', [0, 1])
+    # cfg['AS_double_buffer'].val = 1
+    # cfg['reorder_inner'].val = 1
+    if cfg['AS_double_buffer'].val:
+        s[AS].double_buffer()
+    if cfg['WS_double_buffer'].val:
+        s[WS].double_buffer()
+
+    # unroll
+    cfg.define_knob("auto_unroll_max_step", [0, 512, 1500])
+    # cfg['auto_unroll_max_step'].val = 512
+    # print()
+    s[output].pragma(kernel_scope, 'auto_unroll_max_step',
+                     cfg['auto_unroll_max_step'].val)
+    s[output].pragma(kernel_scope, 'unroll_explicit', False)
+
+
 
     shape = (wmma_m, wmma_n, wmma_k)
 
@@ -377,6 +438,7 @@ def schedule_hwnc_tensorcore_cuda(cfg, s, Conv):
                                              WL_strides, CL_strides, shape))
 
     # print(tvm.lower(s, [data, packed_kernel, Conv], simple_mode=True))
+
 
     return s
 
