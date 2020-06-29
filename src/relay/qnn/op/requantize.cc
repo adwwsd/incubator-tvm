@@ -144,10 +144,11 @@ Expr RequantizeLower(const Expr& input_tensor, const Expr& input_scale,
   // the whole tensor. For per-channel (aka per-axis), there is a vector of scales for the input
   // tensor. Depending on the quantization type, the fixed point multiplication routing is called.
   auto scaled_int32_t = tensor;
-  float output_scale_float = GetScalarFromConstant<float>(output_scale);
   if (IsConstScalar(input_scale)) {
     // This is per-tensor quantization. Single scale.
     float input_scale_float = GetScalarFromConstant<float>(input_scale);
+    float output_scale_float = GetScalarFromConstant<float>(output_scale);
+
     double double_multiplier =
         static_cast<double>(input_scale_float) / static_cast<double>(output_scale_float);
     // Skip if input and output scales are same.
@@ -159,11 +160,23 @@ Expr RequantizeLower(const Expr& input_tensor, const Expr& input_scale,
     // This is per-channel (per=axis) quantization.
     std::vector<double> double_multipliers;
     auto input_axis_scales = GetFloatVectorFromConstant(input_scale);
-    for (auto input_axis_scale : input_axis_scales) {
-      double multiplier =
-          static_cast<double>(input_axis_scale) / static_cast<double>(output_scale_float);
-      double_multipliers.push_back(multiplier);
+
+    if (IsConstScalar(output_scale)) {
+      float output_scale_float = GetScalarFromConstant<float>(output_scale);
+      for (auto input_axis_scale : input_axis_scales) {
+        double multiplier =
+            static_cast<double>(input_axis_scale) / static_cast<double>(output_scale_float);
+        double_multipliers.push_back(multiplier);
+      }
+    } else {
+      auto output_axis_scales = GetFloatVectorFromConstant(output_scale);
+      for (int i = 0; i < output_axis_scales.size(); ++i) {
+        double multiplier =
+           static_cast<double>(input_axis_scales[i]) / static_cast<double>(output_axis_scales[i]);
+        double_multipliers.push_back(multiplier);
+      }
     }
+
     int axis = param->axis;
     axis = (axis == -1) ? input_shape.size() - 1 : axis;
     scaled_int32_t = FixedPointMultiplyPerChannel(scaled_int32_t, double_multipliers, input_shape,
@@ -265,9 +278,12 @@ bool RequantizeRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
   // Check and assign types for scale and zero points.
   AssignType(types[1], DataType::Float(32), data->shape[axis], reporter);  // input_scale
   AssignType(types[2], DataType::Int(32), data->shape[axis], reporter);    // input_zero_pt
-  // For now, requantize output tensor is limited to full tensor uniform quantization.
-  CHECK(IsScalarType(types[3], DataType::Float(32)));  // output_scale
-  CHECK(IsScalarType(types[4], DataType::Int(32)));    // output_zero_point
+  AssignType(types[3], DataType::Float(32), data->shape[axis], reporter);  // output_scale
+  AssignType(types[4], DataType::Int(32), data->shape[axis], reporter);    // output_zero_point
+
+  // // For now, requantize output tensor is limited to full tensor uniform quantization.
+  // CHECK(IsScalarType(types[3], DataType::Float(32)));  // output_scale
+  // CHECK(IsScalarType(types[4], DataType::Int(32)));    // output_zero_point
 
   const Array<tvm::PrimExpr> oshape = data->shape;
   // assign output type

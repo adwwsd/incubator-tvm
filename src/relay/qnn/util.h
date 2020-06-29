@@ -83,6 +83,7 @@ static inline Expr Requantize(const Expr& data, const Array<IndexExpr>& input_sh
   auto attrs = make_object<RequantizeAttrs>();
   attrs->rounding = std::move(rounding);
   attrs->out_dtype = std::move(out_dtype);
+  attrs->axis = -1;
   return RequantizeLower(data, input_scale, input_zero_point, output_scale, output_zero_point,
                          attrs.operator->(), input_shape, attrs->out_dtype);
 }
