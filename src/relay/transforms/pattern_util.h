@@ -389,6 +389,15 @@ inline Expr Clip(Expr x, double a_min, double a_max) {
   return Call(op, {x}, Attrs(attrs), {});
 }
 
+inline Expr BitwiseAnd(Expr lhs, Expr rhs) {
+  static const Op& op = Op::Get("bitwise_and");
+  return Call(op, {lhs, rhs}, Attrs(), {});
+}
+
+inline Expr BitwiseXor(Expr lhs, Expr rhs) {
+  static const Op& op = Op::Get("bitwise_xor");
+  return Call(op, {lhs, rhs}, Attrs(), {});
+}
 
 inline Expr Add(Expr lhs, Expr rhs) {
   static const Op& op = Op::Get("add");
@@ -497,6 +506,11 @@ static inline Expr Where(const Expr& condition, const Expr& x, const Expr& y) {
 
 static inline Expr GreaterEqual(const Expr& lhs, const Expr& rhs) {
   static const Op& op = Op::Get("greater_equal");
+  return Call(op, {lhs, rhs}, Attrs(), {});
+}
+
+static inline Expr Equal(const Expr& lhs, const Expr& rhs) {
+  static const Op& op = Op::Get("equal");
   return Call(op, {lhs, rhs}, Attrs(), {});
 }
 

@@ -170,7 +170,7 @@ Expr RequantizeLower(const Expr& input_tensor, const Expr& input_scale,
       }
     } else {
       auto output_axis_scales = GetFloatVectorFromConstant(output_scale);
-      for (int i = 0; i < output_axis_scales.size(); ++i) {
+      for (unsigned int i = 0; i < output_axis_scales.size(); ++i) {
         double multiplier =
            static_cast<double>(input_axis_scales[i]) / static_cast<double>(output_axis_scales[i]);
         double_multipliers.push_back(multiplier);
@@ -241,7 +241,7 @@ Expr RequantizeQnnCanonicalize(const Attrs& attrs, const Array<Expr>& new_args,
   auto out_dtype = out_tensor_type->dtype;
 
   // Check rounding validity.
-  CHECK(param->rounding == "UPWARD" || param->rounding == "TONEAREST")
+  CHECK(param->rounding == "UPWARD" || param->rounding == "TONEAREST" || param->rounding == "TRUNCATE")
       << "QNN requantize supports two rounding modes - UPWARD and "
       << "TONEAREST";
   return RequantizeLower(quantized_data, input_scale, input_zero_point, output_scale,
