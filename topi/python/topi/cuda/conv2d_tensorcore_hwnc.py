@@ -57,6 +57,9 @@ def hwnc_tensorcore_cuda(cfg, Input, Filter, stride, padding, dilation, out_dtyp
     assert isinstance(stride, int) or len(stride) == 2
     assert isinstance(dilation, int) or len(dilation) == 2
 
+    def upalign(x, align):
+        return (x + align - 1) // align * align
+
     if isinstance(stride, int):
         stride_h = stride_w = stride
     else:
@@ -214,10 +217,6 @@ def schedule_hwnc_tensorcore_cuda(cfg, s, Conv):
     cfg.define_knob("chunk", [1, 2, 4, 8])
     cfg.define_knob("fuse_pack", [0, 1])
     cfg.define_knob("split_block_k", [1, 2, 4, 8, 16, 32])
-    # if data_dtype in ["int8", "uint8"]:
-    #     cfg.define_knob("vector_as", [1, 2, 4, 8, 16])
-    # else:
-    #     cfg.define_knob("vector_as", [4])
     cfg.define_knob("vector_ws", [1, 8])
     cfg.define_knob("vector_as", [1, 8, 16])
     block_row_warps = cfg["block_row_warps"].val
@@ -249,22 +248,9 @@ def schedule_hwnc_tensorcore_cuda(cfg, s, Conv):
         wmma_m = wmma_n = 8
         wmma_k = 32
     else:
-        # if (batch % 16 == 0 and out_channels % 16 == 0):
-        #     cfg.define_knob("wmma_m", [16, 8, 32])
-        # elif (batch % 8 == 0 and out_channels % 32 == 0):
-        #     cfg.define_knob("wmma_m", [8, 16, 32])
-        # elif (batch % 32 == 0 and out_channels % 8 == 0):
-        #     cfg.define_knob("wmma_m", [32, 16, 8])
-        # wmma_m = cfg["wmma_m"].val
         wmma_m = 8
         wmma_n = 32
         wmma_k = 16
-        # if wmma_m == 16:
-        #     wmma_n = 16
-        # elif wmma_m == 8:
-        #     wmma_n = 32
-        # elif wmma_m == 32:
-        #     wmma_n = 8
 
     warp_size = 32
 
@@ -312,28 +298,15 @@ def schedule_hwnc_tensorcore_cuda(cfg, s, Conv):
     s[ConvF].reorder(ko, kh, ki, kw, n, o, nnf, oof, ii)
 
     cfg.define_reorder("reorder_inner", [ko, kh], policy="all")
-    # cfg['reorder_inner'] = autotvm.task.space.ReorderEntity([0, 1, 2])
     cfg["reorder_inner"].apply(s, ConvF, [ko, kh])
     cfg["reorder_inner"].apply(s, ConvF, [ki, kw])
 
-    # cfg.define_knob("compute_at_AF", [0, 1])
-    # cfg.define_knob("compute_at_WF", [0, 1])
     cfg.define_knob("compute_at_AS", [0, 1, 2, 3])
     cfg.define_knob("compute_at_WS", [0, 1, 2, 3])
-    # compute_at_AF = cfg["compute_at_AF"].val
-    # compute_at_WF = cfg["compute_at_WF"].val
     compute_at_AS = cfg["compute_at_AS"].val
     compute_at_WS = cfg["compute_at_WS"].val
 
     # Move intermediate computation into each output compute tile
-    # if compute_at_AF:
-    #     s[AF].compute_at(s[ConvF], kw)
-    # else:
-    #     s[AF].compute_at(s[ConvF], ki)
-    # if compute_at_WF:
-    #     s[WF].compute_at(s[ConvF], kw)
-    # else:
-    #     s[WF].compute_at(s[ConvF], ki)
 
     s[AF].compute_at(s[ConvF], kw)
     s[WF].compute_at(s[ConvF], kw)
@@ -383,8 +356,6 @@ def schedule_hwnc_tensorcore_cuda(cfg, s, Conv):
     # double buffer
     cfg.define_knob('AS_double_buffer', [0, 1])
     cfg.define_knob('WS_double_buffer', [0, 1])
-    # cfg['AS_double_buffer'].val = 1
-    # cfg['reorder_inner'].val = 1
     if cfg['AS_double_buffer'].val:
         s[AS].double_buffer()
     if cfg['WS_double_buffer'].val:
@@ -392,8 +363,6 @@ def schedule_hwnc_tensorcore_cuda(cfg, s, Conv):
 
     # unroll
     cfg.define_knob("auto_unroll_max_step", [0, 512, 1500])
-    # cfg['auto_unroll_max_step'].val = 512
-    # print()
     s[output].pragma(kernel_scope, 'auto_unroll_max_step',
                      cfg['auto_unroll_max_step'].val)
     s[output].pragma(kernel_scope, 'unroll_explicit', False)
@@ -422,7 +391,6 @@ def schedule_hwnc_tensorcore_cuda(cfg, s, Conv):
     WS_strides = [wmma_k, 1]
     CL_strides = [wmma_n, 1]
     CS_strides = [wmma_n, 1]
-
 
     s[AF].tensorize(AF.op.axis[-2], intrin_wmma_load_matrix_A(AL_strides, AS_strides, shape,
                                                     "row_major", AS_shape, AL_shape, data_dtype))
