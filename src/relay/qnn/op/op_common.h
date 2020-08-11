@@ -171,12 +171,12 @@ static inline bool QnnBroadcastRel(const Array<Type>& types, int num_inputs, con
   CHECK_EQ(types.size(), kNumQnnBinaryOpArgTypes);
 
   // Check the scale and zero point types
-  CHECK(IsScalarType(types[2], DataType::Float(32)));  // lhs_scale
-  CHECK(IsScalarType(types[3], DataType::Int(32)));    // lhs_zero_point
-  CHECK(IsScalarType(types[4], DataType::Float(32)));  // rhs_scale
-  CHECK(IsScalarType(types[5], DataType::Int(32)));    // rhs_zero_point
-  CHECK(IsScalarType(types[6], DataType::Float(32)));  // output_scale
-  CHECK(IsScalarType(types[7], DataType::Int(32)));    // output_zero_point
+  // CHECK(IsScalarType(types[2], DataType::Float(32)));  // lhs_scale
+  // CHECK(IsScalarType(types[3], DataType::Int(32)));    // lhs_zero_point
+  // CHECK(IsScalarType(types[4], DataType::Float(32)));  // rhs_scale
+  // CHECK(IsScalarType(types[5], DataType::Int(32)));    // rhs_zero_point
+  // CHECK(IsScalarType(types[6], DataType::Float(32)));  // output_scale
+  // CHECK(IsScalarType(types[7], DataType::Int(32)));    // output_zero_point
 
   // Collect the input tensor and output tensor devoid of scale and zero points to reuse Relay
   // BroadcastRel infer type function.

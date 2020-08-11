@@ -100,9 +100,13 @@ Expr DequantizeLower(const Expr& input_tensor, const Expr& input_scale,
 Expr DequantizeQnnCanonicalize(const Attrs& attrs, const Array<Expr>& new_args,
                                const Array<tvm::relay::Type>& types) {
   CHECK_EQ(new_args.size(), 3);
+
   auto& data = new_args[0];
   auto& input_scale = new_args[1];
   auto& input_zero_point = new_args[2];
+
+  const auto* dequantize_attrs = attrs.as<DequantizeAttrs>();
+  CHECK(dequantize_attrs != nullptr);
   CHECK_EQ(types.size(), 4);
 
   // Get attrs.
