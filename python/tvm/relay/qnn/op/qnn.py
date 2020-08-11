@@ -121,7 +121,8 @@ def quantize(data,
 
 def dequantize(data,
                input_scale,
-               input_zero_point):
+               input_zero_point,
+               axis):
     r""" Dequantize op
     This operator takes quantized int8 and unit8 as input and produces
     dequantized float32 as output. The output shape is the same as input shape. The input
@@ -143,7 +144,8 @@ def dequantize(data,
 
     return _make.dequantize(data,
                             input_scale,
-                            input_zero_point)
+                            input_zero_point,
+                            axis)
 
 
 def concatenate(data,
