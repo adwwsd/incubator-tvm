@@ -109,23 +109,26 @@ Expr FixedPointMultiply(Expr tensor, double multiplier, const Array<IndexExpr>& 
   int total_right_shift = right_shift + 31;
   int64_t pos_rounding_value = (1ll << (total_right_shift - 1));
 
-  Expr round_scalar;
-  if (rounding == "UPWARD") {
-    round_scalar = MakeConstantScalar(hp_dtype, pos_rounding_value);
-  } else if (rounding == "TONEAREST") {
-    auto pos_rounder = MakeConstantScalar(hp_dtype, pos_rounding_value);
-    auto neg_rounder = MakeConstantScalar(hp_dtype, pos_rounding_value - 1);
-    auto pos_rounder_t = Full(pos_rounder, input_shape, hp_dtype);
-    auto neg_rounder_t = Full(neg_rounder, input_shape, hp_dtype);
+  if (rounding != "TRUNCATE") {
+    Expr round_scalar;
+    if (rounding == "UPWARD") {
+      round_scalar = MakeConstantScalar(hp_dtype, pos_rounding_value);
+    } else if (rounding == "TONEAREST") {
+      auto pos_rounder = MakeConstantScalar(hp_dtype, pos_rounding_value);
+      auto neg_rounder = MakeConstantScalar(hp_dtype, pos_rounding_value - 1);
+      auto pos_rounder_t = Full(pos_rounder, input_shape, hp_dtype);
+      auto neg_rounder_t = Full(neg_rounder, input_shape, hp_dtype);
 
-    auto zero_t = Zeros(input_shape, hp_dtype);
-    round_scalar =
-        Where(GreaterEqual(tensor, zero_t), pos_rounder_t, neg_rounder_t);
-  } else {
-    LOG(FATAL) << "Rounding mode " << rounding << " not supported.";
+      auto zero_t = Zeros(input_shape, hp_dtype);
+      round_scalar =
+          Where(GreaterEqual(tensor, zero_t), pos_rounder_t, neg_rounder_t);
+    } else {
+      LOG(FATAL) << "Rounding mode " << rounding << " not supported.";
+    }
+
+    // Add the rounding scalar.
+    tensor = Add(tensor, round_scalar);
   }
-  // Add the rounding scalar.
-  tensor = Add(tensor, round_scalar);
 
   // 5) Simply right shift the result to get the final output.
   tensor =
@@ -200,21 +203,25 @@ Expr FixedPointMultiplyPerChannel(Expr tensor, std::vector<double> multipliers,
   auto exp_neg_rounding_value_expr =
       ExpandBiasToMatchAxis(neg_rounding_value_expr, n_dim, {channel_axis});
 
-  Expr round_scalar;
-  if (rounding == "UPWARD") {
-    round_scalar = exp_pos_rounding_value_expr;
-  } else if (rounding == "TONEAREST") {
-    // To satisfy where op shape requirements, the rounding values are broadcasted.
-    auto pos_rounder = MakeBroadCastTo(exp_pos_rounding_value_expr, input_shape);
-    auto neg_rounder = MakeBroadCastTo(exp_neg_rounding_value_expr, input_shape);
+  if (rounding != "TRUNCATE") {
+    Expr round_scalar;
+    if (rounding == "UPWARD") {
+      round_scalar = exp_pos_rounding_value_expr;
+    } else if (rounding == "TONEAREST") {
+      // To satisfy where op shape requirements, the rounding values are broadcasted.
+      auto pos_rounder = MakeBroadCastTo(exp_pos_rounding_value_expr, input_shape);
+      auto neg_rounder = MakeBroadCastTo(exp_neg_rounding_value_expr, input_shape);
 
-    auto zero_t = Zeros(input_shape, hp_dtype);
-    round_scalar = Where(GreaterEqual(tensor, zero_t), pos_rounder, neg_rounder);
-  } else {
-    LOG(FATAL) << "Rounding mode " << rounding << " not supported.";
+      auto zero_t = Zeros(input_shape, hp_dtype);
+      round_scalar = Where(GreaterEqual(tensor, zero_t), pos_rounder, neg_rounder);
+    } else {
+      LOG(FATAL) << "Rounding mode " << rounding << " not supported.";
+    }
+
+    // Add the rounding scalar.
+    tensor = Add(tensor, round_scalar);
   }
-  // Add the rounding scalar.
-  tensor = Add(tensor, round_scalar);
+
 
   // 5) Simply right shift the result to get the final output.
   auto total_rshift_expr = MakeConstantTensor(hp_dtype, {n_channels}, total_rshifts);
