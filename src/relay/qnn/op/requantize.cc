@@ -239,7 +239,7 @@ Expr RequantizeQnnCanonicalize(const Attrs& attrs, const Array<Expr>& new_args,
   auto out_dtype = out_tensor_type->dtype;
 
   // Check rounding validity.
-  CHECK(param->rounding == "UPWARD" || param->rounding == "TONEAREST")
+  CHECK(param->rounding == "UPWARD" || param->rounding == "TONEAREST" || param->rounding == "TRUNCATE")
       << "QNN requantize supports two rounding modes - UPWARD and "
       << "TONEAREST";
   return RequantizeLower(quantized_data, input_scale, input_zero_point, output_scale,
