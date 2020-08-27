@@ -43,6 +43,9 @@ def schedule_injective_from_existing(sch, out):
     # bandwidth.
     vector_width = 4 if out.dtype == "float16" else 1
 
+    if out.dtype in ["uint4", "int4"]:
+        vector_width = 8
+
     try:
         const_size = util.get_const_int(util.prod(out.shape))
         need_block_split = const_size > max_block * num_thread * vector_width
@@ -51,7 +54,8 @@ def schedule_injective_from_existing(sch, out):
 
     if vector_width > 1:
         fused, v = sch[out].split(fused, vector_width)
-        sch[out].vectorize(v)
+        if out.dtype not in ["uint4", "int4"]:
+            sch[out].vectorize(v)
 
     if need_block_split:
         xo, xi = sch[out].split(fused, factor=num_thread * max_block)
