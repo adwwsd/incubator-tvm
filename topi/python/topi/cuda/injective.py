@@ -54,8 +54,7 @@ def schedule_injective_from_existing(sch, out):
 
     if vector_width > 1:
         fused, v = sch[out].split(fused, vector_width)
-        if out.dtype not in ["uint4", "int4"]:
-            sch[out].vectorize(v)
+        sch[out].vectorize(v)
 
     if need_block_split:
         xo, xi = sch[out].split(fused, factor=num_thread * max_block)
@@ -64,6 +63,9 @@ def schedule_injective_from_existing(sch, out):
         sch[out].bind(bx, te.thread_axis("blockIdx.x"))
         sch[out].bind(tx, te.thread_axis("threadIdx.x"))
     else:
+        const_size = const_size // vector_width
+        if const_size < num_thread:
+            num_thread = const_size
         bx, tx = sch[out].split(fused, factor=num_thread)
         sch[out].bind(tx, te.thread_axis("threadIdx.x"))
         sch[out].bind(bx, te.thread_axis("blockIdx.x"))
