@@ -54,7 +54,7 @@ def schedule_injective_from_existing(sch, out):
 
     if vector_width > 1:
         fused, v = sch[out].split(fused, vector_width)
-        sch[out].vectorize(v)
+        # sch[out].vectorize(v)
 
     if need_block_split:
         xo, xi = sch[out].split(fused, factor=num_thread * max_block)

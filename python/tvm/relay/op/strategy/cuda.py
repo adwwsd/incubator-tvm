@@ -124,63 +124,13 @@ def conv2d_strategy_cuda(attrs, inputs, out_type, target):
             #         wrap_topi_schedule(topi.cuda.schedule_conv2d_nchw_winograd),
             #         name="conv2d_nchw_winograd.cuda",
             #         plevel=5)
-        elif layout == "HWCN":
-            assert kernel_layout in ["HWOI", "HWOI16o16i", "HWOI8o32i", "HWOI32o16i"]
-            # strategy.add_implementation(
-            #     wrap_compute_conv2d(topi.cuda.conv2d_hwcn),
-            #     wrap_topi_schedule(topi.cuda.schedule_conv2d_hwcn),
-            #     name="conv2d_hwcn.cuda")
-            _, _, in_channels, N = get_const_tuple(data.shape)
-            pre_computed = len(kernel.shape) == 6
-            if pre_computed:
-                _, _, oc_chunk, _, oc_block_factor, _ = get_const_tuple(kernel.shape)
-                out_channels = oc_chunk * oc_block_factor
-            else:
-                _, _, out_channels, _ = get_const_tuple(kernel.shape)
-            if topi.cuda.is_shape_tensorcore_direct_qualified(batch=N, in_channels=in_channels, num_filter=out_channels, in_dtype=data.dtype):
-                strategy.add_implementation(
-                    wrap_compute_conv2d(topi.cuda.conv2d_hwcn_tensorcore),
-                    wrap_topi_schedule(topi.cuda.schedule_conv2d_hwcn_tensorcore),
-                    name="conv2d_hwcn_tensorcore_direct.cuda",
-                    plevel=20)
-            else:
-                strategy.add_implementation(
-                    wrap_compute_conv2d(topi.cuda.conv2d_hwcn_tensorcore_im2col, need_data_layout=True),
-                    wrap_topi_schedule(topi.cuda.schedule_conv2d_hwcn_tensorcore_im2col),
-                    name="conv2d_hwcn_tensorcore_im2col",
-                    plevel=20)
-        elif layout == "HWNC":
-            assert kernel_layout in ["HWOI", "HWOI16o16i", "HWOI8o32i", "HWOI32o16i"]
-            # strategy.add_implementation(
-            #     wrap_compute_conv2d(topi.cuda.conv2d_hwnc),
-            #     wrap_topi_schedule(topi.cuda.schedule_conv2d_hwnc),
-            #     name="conv2d_hwnc.cuda")
-            _, _, N, in_channels = get_const_tuple(data.shape)
-            pre_computed = len(kernel.shape) == 6
-            if pre_computed:
-                _, _, oc_chunk, _, oc_block_factor, _ = get_const_tuple(kernel.shape)
-                out_channels = oc_chunk * oc_block_factor
-            else:
-                _, _, out_channels, _ = get_const_tuple(kernel.shape)
-            if topi.cuda.is_shape_tensorcore_direct_qualified(batch=N, in_channels=in_channels, num_filter=out_channels, in_dtype=data.dtype):
-                strategy.add_implementation(
-                    wrap_compute_conv2d(topi.cuda.conv2d_hwnc_tensorcore),
-                    wrap_topi_schedule(topi.cuda.schedule_conv2d_hwnc_tensorcore),
-                    name="conv2d_hwnc_tensorcore_direct.cuda",
-                    plevel=20)
-            else:
-                strategy.add_implementation(
-                    wrap_compute_conv2d(topi.cuda.conv2d_hwnc_tensorcore_im2col, need_data_layout=True),
-                    wrap_topi_schedule(topi.cuda.schedule_conv2d_hwnc_tensorcore_im2col),
-                    name="conv2d_hwnc_tensorcore_im2col",
-                    plevel=20)
         elif layout == "NHWC":
             # assert kernel_layout in ["HWIO", "OHWI", "OHWI16o16i", "OHWI8o32i"], "kernel %s is not supported" % kernel_layout
 
-            strategy.add_implementation(
-                wrap_compute_conv2d(topi.cuda.conv2d_nhwc),
-                wrap_topi_schedule(topi.cuda.schedule_conv2d_nhwc),
-                name="conv2d_nhwc.cuda")
+            # strategy.add_implementation(
+            #     wrap_compute_conv2d(topi.cuda.conv2d_nhwc),
+            #     wrap_topi_schedule(topi.cuda.schedule_conv2d_nhwc),
+            #     name="conv2d_nhwc.cuda")
             N, H, W, _ = get_const_tuple(data.shape)
             KH, KW, CI, CO = get_const_tuple(kernel.shape)
             # Winograd shape related judgment
@@ -208,25 +158,14 @@ def conv2d_strategy_cuda(attrs, inputs, out_type, target):
                         name="conv2d_nhwc_winograd_direct.cuda",
                         plevel=5)
 
-            if target.target_name == "cuda":
-                if nvcc.have_tensorcore(tvm.gpu(0).compute_version):
+            if target.kind.name == "cuda" and \
+                    nvcc.have_tensorcore(tvm.gpu(0).compute_version):
+                    strategy.add_implementation(
+                        wrap_compute_conv2d(topi.cuda.conv2d_nhwc_tensorcore_im2col, need_data_layout=True),
+                        wrap_topi_schedule(topi.cuda.schedule_conv2d_nhwc_tensorcore_im2col),
+                        name="conv2d_nhwc_tensorcore_im2col",
+                        plevel=20)
 
-                    if data.dtype in ['int8', 'uint8', 'int4', 'uint4'] and kernel.dtype in ['int8', 'uint8', 'int4', 'uint4'] and \
-                        data.dtype == kernel.dtype and kernel_layout in ["OHWI", "OHWI16o16i", "OHWI8o32i"] :
-                        strategy.add_implementation(
-                            wrap_compute_conv2d(topi.cuda.conv2d_nhwc_tensorcore_im2col, need_data_layout=True),
-                            wrap_topi_schedule(topi.cuda.schedule_conv2d_nhwc_tensorcore_im2col),
-                            name="conv2d_nhwc_tensorcore_im2col",
-                            plevel=20)
-
-                    elif (N % 16 == 0 and CI % 16 == 0 and CO % 16 == 0) or \
-                            (N % 8 == 0 and CI % 16 == 0 and CO % 32 == 0) or \
-                            (N % 32 == 0 and CI % 16 == 0 and CO % 8 == 0):
-                        strategy.add_implementation(
-                            wrap_compute_conv2d(topi.cuda.conv2d_nhwc_tensorcore),
-                            wrap_topi_schedule(topi.cuda.schedule_conv2d_nhwc_tensorcore),
-                            name="conv2d_nhwc_tensorcore.cuda",
-                            plevel=20)
         elif layout == "HWNC":
             assert kernel_layout in ["HWOI", "HWOI16o16i", "HWOI8o32i", "HWOI32o16i"]
             _, _, N, in_channels = get_const_tuple(data.shape)
@@ -236,7 +175,7 @@ def conv2d_strategy_cuda(attrs, inputs, out_type, target):
                 out_channels = oc_chunk * oc_block_factor
             else:
                 _, _, out_channels, _ = get_const_tuple(kernel.shape)
-            if topi.cuda.is_shape_tensorcore_direct_qualified(
+            if topi.cuda.is_shape_hwnc_tensorcore_direct_qualified(
                     batch=N, in_channels=in_channels, num_filter=out_channels, in_dtype=data.dtype):
                 strategy.add_implementation(
                     wrap_compute_conv2d(topi.cuda.conv2d_hwnc_tensorcore),

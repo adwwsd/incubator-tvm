@@ -29,6 +29,15 @@ from .tensor_intrin import intrin_wmma_load_matrix_W
 from .tensor_intrin import intrin_wmma_store_matrix
 from .tensor_intrin import intrin_wmma_gemm
 
+def is_shape_hwnc_tensorcore_direct_qualified(batch, in_channels, num_filter, in_dtype):
+    if in_dtype in ['int4', 'uint4']:
+        return (batch % 8 == 0 and in_channels % 32 == 0 and num_filter % 8 == 0)
+    elif in_dtype in ['int8', 'uint8']:
+        return (batch % 16 == 0 and in_channels % 16 == 0 and num_filter % 16 == 0) or \
+               (batch % 8 == 0 and in_channels % 16 == 0 and num_filter % 32 == 0) or \
+               (batch % 32 == 0 and in_channels % 16 == 0 and num_filter % 8 == 0)
+    else:
+        return False
 
 def unpack_HWNCnc_to_hwnc(packed_out, out_dtype):
     """Unpack conv2d_hwnc output from layout hwncnc to hwnc
@@ -243,7 +252,7 @@ def schedule_hwnc_tensorcore_cuda(cfg, s, Conv):
     cfg.define_knob("warp_col_tiles", [1, 2, 4, 8, 16])
     cfg.define_knob("chunk", [1, 2, 4, 8])
     cfg.define_knob("fuse_pack", [0, 1])
-    cfg.define_knob("split_block_k_nums", [1, 2, 4, 8, 16, 32])
+    cfg.define_knob("split_block_k", [1, 2, 4, 8, 16, 32])
     cfg.define_knob("vector_ws", [1, 8])
     cfg.define_knob("vector_as", [1, 8, 16])
 
@@ -254,7 +263,7 @@ def schedule_hwnc_tensorcore_cuda(cfg, s, Conv):
     chunk = cfg["chunk"].val
     vector_as = cfg["vector_as"].val
     vector_ws = cfg["vector_ws"].val
-    split_block_k_nums = cfg["split_block_k_nums"].val
+    split_block_k_nums = cfg["split_block_k"].val
     fuse_pack = cfg["fuse_pack"].val
 
     if not fuse_pack:

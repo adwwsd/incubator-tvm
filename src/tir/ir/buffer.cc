@@ -291,16 +291,12 @@ PrimExpr Buffer::vload(Array<PrimExpr> begin, DataType dtype) const {
       << " from buffer of " << n->dtype;
 
   if (n->dtype == DataType::Int(4) || n->dtype == DataType::UInt(4)) {
-    PrimExpr new_index = tir::DivNode::make(BufferOffset(n, begin, n->dtype), 32 / n->dtype.bits());
-    return tir::LoadNode::make(
-            DataType::Int(32), n->data, new_index,
-            const_true());
+    PrimExpr new_index = tir::Div(BufferOffset(n, begin, n->dtype), 32 / n->dtype.bits());
+    return tir::Load(DataType::Int(32), n->data, new_index, const_true());
   } else if (dtype == DataType::Bool()) {
-    return tir::CastNode::make(
-        DataType::Bool(),
-        tir::LoadNode::make(
-            DataType::Int(8), n->data, BufferOffset(n, begin, DataType::Int(8)),
-            const_true()));
+    return tir::Cast(DataType::Bool(),
+                     tir::Load(DataType::Int(8), n->data, BufferOffset(n, begin, DataType::Int(8)),
+                               const_true()));
   } else {
     return tir::Load(dtype, n->data, BufferOffset(n, begin, dtype), const_true(dtype.lanes()));
   }
@@ -317,13 +313,11 @@ Stmt Buffer::vstore(Array<PrimExpr> begin, PrimExpr value) const {
         << " from buffer of " << n->dtype;
 
   if (n->dtype == DataType::Int(4) || n->dtype == DataType::UInt(4)) {
-    PrimExpr new_index = tir::DivNode::make(BufferOffset(n, begin, n->dtype), 32 / n->dtype.bits());
-    return tir::StoreNode::make(n->data, value, new_index, const_true());
+    PrimExpr new_index = tir::Div(BufferOffset(n, begin, n->dtype), 32 / n->dtype.bits());
+    return tir::Store(n->data, value, new_index, const_true());
   } if (value.dtype() == DataType::Bool()) {
-    return tir::StoreNode::make(n->data,
-                           tir::CastNode::make(DataType::Int(8), value),
-                           BufferOffset(n, begin, DataType::Int(8)),
-                           const_true());
+    return tir::Store(n->data, tir::Cast(DataType::Int(8), value),
+                      BufferOffset(n, begin, DataType::Int(8)), const_true());
   } else {
     return tir::Store(n->data, value, BufferOffset(n, begin, dtype), const_true(dtype.lanes()));
   }

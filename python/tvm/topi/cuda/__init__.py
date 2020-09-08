@@ -23,10 +23,6 @@ from .conv1d import *
 from .conv1d_transpose_ncw import *
 from .conv2d import *
 from .conv2d_hwcn import *
-# from .conv2d_tensorcore_hwcn import *
-from .conv2d_tensorcore_hwnc import *
-# from .conv2d_tensorcore_hwcn_im2col import *
-from .conv2d_tensorcore_hwnc_im2col import *
 from .conv2d_int8 import *
 from .conv2d_winograd import *
 from .conv2d_nhwc_winograd import *
@@ -55,5 +51,7 @@ from .conv2d_nhwc_tensorcore import *
 from .conv3d_ndhwc_tensorcore import *
 from .dense_tensorcore import *
 from .conv2d_hwnc_tensorcore import *
+from .conv2d_hwnc_tensorcore_im2col import *
+from .conv2d_nhwc_tensorcore_im2col import *
 from .correlation import *
 from .sparse import *

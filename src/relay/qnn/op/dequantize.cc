@@ -105,10 +105,6 @@ Expr DequantizeQnnCanonicalize(const Attrs& attrs, const Array<Expr>& new_args,
   auto& input_scale = new_args[1];
   auto& input_zero_point = new_args[2];
 
-  const auto* dequantize_attrs = attrs.as<DequantizeAttrs>();
-  CHECK(dequantize_attrs != nullptr);
-  CHECK_EQ(types.size(), 4);
-
   // Get attrs.
   const auto* dequantize_attrs = attrs.as<DequantizeAttrs>();
   CHECK(dequantize_attrs != nullptr);
