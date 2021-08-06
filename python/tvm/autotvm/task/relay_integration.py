@@ -136,6 +136,7 @@ def extract_from_multiple_program(mods, params, target, target_host=None, ops=No
             # wrap build call in thread to avoid multiprocessing problems
             build_thread = threading.Thread(target=_lower,
                                             args=(mod, target, param))
+            #_lower(mod,target,param)
             build_thread.start()
             build_thread.join()
 

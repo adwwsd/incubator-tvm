@@ -99,6 +99,9 @@ def conv2d_strategy_cuda(attrs, inputs, out_type, target):
     groups = attrs.groups
     layout = attrs.data_layout
     kernel_layout = attrs.kernel_layout
+    #print("================================================================================================================================================")
+    #print(f"data:{data}, kernel:{kernel}, data_dtype:{data.dtype}, kernel_dtype:{kernel.dtype}, layout:{layout}, kernel_layout:{kernel_layout}")
+    #print(f"stride_h:{stride_h}, stride_w:{stride_w}, dilation_h:{dilation_h}, dilation_w:{dilation_w}, padding:{padding}, groups:{groups}")
     if dilation_h < 1 or dilation_w < 1:
         raise ValueError("dilation should be positive value")
 
@@ -162,6 +165,7 @@ def conv2d_strategy_cuda(attrs, inputs, out_type, target):
                 out_channels = oc_chunk * oc_block_factor
             else:
                 _, _, out_channels, _ = get_const_tuple(kernel.shape)
+            #if False:
             if topi.cuda.is_shape_tensorcore_direct_qualified(batch=N, in_channels=in_channels, num_filter=out_channels, in_dtype=data.dtype):
                 strategy.add_implementation(
                     wrap_compute_conv2d(topi.cuda.conv2d_hwnc_tensorcore),

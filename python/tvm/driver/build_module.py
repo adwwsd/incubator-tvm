@@ -213,6 +213,24 @@ def lower(sch,
 
     optimize = tvm.transform.Sequential(pass_list)
     mod = optimize(mod)
+
+    import time
+    from pathlib import Path
+    import os
+    code = f"{mod}"
+    home = Path.home()
+    curtime = time.time()
+    timestring = time.strftime("%Y-%m-$d %I:%M %p",time.localtime(curtime))
+    #microsec = str(curtime).split('.')[1]
+    scheduleCheckFileName = timestring + ".schedule"
+    scheduleCheckFileName = str(Path.joinpath(home, "temp/" + scheduleCheckFileName))
+    if os.path.exists(scheduleCheckFileName):
+        append_write = 'a'
+    else:
+        append_write = 'w'
+    with open(scheduleCheckFileName, append_write) as scheduleCheckFile:
+       scheduleCheckFile.write(code)
+
     return mod
 
 

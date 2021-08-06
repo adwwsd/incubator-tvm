@@ -27,6 +27,8 @@ from tvm.runtime import ndarray as nd
 
 from . import util
 from .._ffi.base import py_str
+from pathlib import Path
+import hashlib
 
 def compile_cuda(code,
                  target="ptx",
@@ -63,6 +65,18 @@ def compile_cuda(code,
     temp_code = temp.relpath("my_kernel.cu")
     temp_target = temp.relpath("my_kernel.%s" % target)
 
+    #import time
+    #home = Path.home()
+    #kernelCheckFileName = time.ctime(time.time()) + ".cu"
+    #kernelCheckFileName = str(Path.joinpath(home, "temp/" + kernelCheckFileName))
+    #with open(kernelCheckFileName, "w") as kernelCheckFile:
+        #kernelCheckFile.write(code)
+
+    #home = Path.home()
+    #kernelCheckFileName = str(Path.joinpath(home, f"temp/{hashlib.sha224(str.encode(code)).hexdigest()}.cu"))
+    #with open(kernelCheckFileName, "w") as kernelCheckFile:
+        #kernelCheckFile.write(code)
+
     with open(temp_code, "w") as out_file:
         out_file.write(code)
 
@@ -91,6 +105,7 @@ def compile_cuda(code,
 
     cmd += ["-o", file_target]
     cmd += [temp_code]
+    #print(cmd)
 
     proc = subprocess.Popen(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)

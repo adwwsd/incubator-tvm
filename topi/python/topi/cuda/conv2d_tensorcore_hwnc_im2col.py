@@ -83,7 +83,7 @@ def conv2d_hwnc_tensorcore_im2col(cfg, data, kernel, stride, padding, dilation, 
     """
     assert layout == 'HWNC'
     assert data.dtype in ['int8', 'uint8', 'int4', 'uint4'] and kernel.dtype in ['int8', 'uint8', 'int4', 'uint4']
-    assert data.dtype == kernel.dtype
+    #assert data.dtype == kernel.dtype
 
     if data.dtype == 'int8' or data.dtype == 'uint8':
         kernel_size_m = 16
@@ -232,10 +232,11 @@ def _schedule_conv2d_hwnc_tensorcore_im2col(cfg, s, output):
         pre_computed = 1
         kernel = kernel_im2col
 
-    in_dtype = data_im2col.dtype
-    if in_dtype == 'int8':
+    data_dtype = data_im2col.dtype
+    kernel_dtype = kernel_im2col.dtype
+    if data_dtype == 'int8' or data_dtype == 'uint8':
         wmma_m, wmma_n, wmma_k = (16, 16, 16)
-    elif in_dtype == 'int4':
+    elif data_dtype == 'int4' or data_dtype == 'uint4':
         wmma_m, wmma_n, wmma_k = (8, 8, 32)
 
     cfg.define_knob("block_row_warps", [1, 2, 4, 8])
@@ -243,9 +244,9 @@ def _schedule_conv2d_hwnc_tensorcore_im2col(cfg, s, output):
     cfg.define_knob("warp_row_tiles", [1, 2, 4, 8])
     cfg.define_knob("warp_col_tiles", [1, 2, 4, 8])
     cfg.define_knob("chunk", [1, 2, 4, 8, 16])
-    if in_dtype in ["int8", "uint8"]:
+    if data_dtype in ["int8", "uint8"]:
         cfg.define_knob("vector_width", [1, 2, 4, 8, 16])
-    elif in_dtype in ["int4", "uint4"]:
+    elif data_dtype in ["int4", "uint4"]:
         cfg.define_knob("vector_width", [1, 2, 4])
     cfg.define_knob("fuse_im2col", [0, 1])
 
@@ -370,8 +371,8 @@ def _schedule_conv2d_hwnc_tensorcore_im2col(cfg, s, output):
     CF_strides = get_strides([wmma_n, 1])
     CS_strides = get_strides([wmma_n, 1])
 
-    AF_gemm = te.placeholder(AF_shape, name='A', dtype=in_dtype)
-    BF_gemm = te.placeholder(BF_shape, name='B', dtype=in_dtype)
+    AF_gemm = te.placeholder(AF_shape, name='A', dtype=data_dtype)
+    BF_gemm = te.placeholder(BF_shape, name='B', dtype=data_dtype)
     k_gemm = te.reduce_axis((0, wmma_k), name="k")
     CF_compute = te.compute((wmma_m, wmma_n),
                             lambda ii, jj:
@@ -379,9 +380,9 @@ def _schedule_conv2d_hwnc_tensorcore_im2col(cfg, s, output):
                             name='C')
 
     s[AF].tensorize(AF.op.axis[-2], intrin_wmma_load_matrix_A(AF_strides, AS_strides, shape,
-                                                                "row_major", AS_shape, AF_shape, in_dtype))
+                                                                "row_major", AS_shape, AF_shape, data_dtype))
     s[BF].tensorize(BF.op.axis[-2], intrin_wmma_load_matrix_W(BF_strides, BS_strides, shape,
-                                                            "col_major", BS_shape, BF_shape, in_dtype))
+                                                            "col_major", BS_shape, BF_shape, data_dtype))
     s[C].tensorize(kernel_i, intrin_wmma_store_matrix(CS_strides, CF_strides,
                                                         shape, output.dtype, CL_shape, CS_shape, 'global'))
     s[CF].tensorize(_i, intrin_wmma_gemm(AF_gemm, BF_gemm, CF_compute, AF_strides,

@@ -262,6 +262,9 @@ def schedule_hwnc_tensorcore_cuda(cfg, s, Conv):
     else:
         hc, wc, nc, oc, nnc, ooc = output.op.axis
 
+
+    #print(f"hc:{hc}, wc:{wc}, nc:{nc}, oc:{oc}")
+
     kernel_scope, hc = s[output].split(hc, nparts=1)
 
     block_k = s[output].fuse(hc, wc)
@@ -405,7 +408,7 @@ def schedule_hwnc_tensorcore_cuda(cfg, s, Conv):
     s[ConvF].tensorize(nnf, intrin_wmma_gemm(AL_gemm, WL_gemm, CL_compute, AL_strides,
                                              WL_strides, CL_strides, shape))
 
-    # print(tvm.lower(s, [data, packed_kernel, Conv], simple_mode=True))
+    #print(tvm.lower(s, [data, packed_kernel, Conv], simple_mode=True))
 
 
     return s
