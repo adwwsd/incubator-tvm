@@ -220,7 +220,7 @@ def lower(sch,
     code = f"{mod}"
     home = Path.home()
     curtime = time.time()
-    timestring = time.strftime("%Y-%m-$d %I:%M %p",time.localtime(curtime))
+    timestring = time.strftime("%Y-%m-%d %I:%M %p",time.localtime(curtime))
     #microsec = str(curtime).split('.')[1]
     scheduleCheckFileName = timestring + ".schedule"
     scheduleCheckFileName = str(Path.joinpath(home, "temp/" + scheduleCheckFileName))
